@@ -114,6 +114,21 @@ input.edit {
 .notice { background: var(--warn-bg); border-radius: 6px; padding: 8px 12px; margin: 10px 0; }
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }
 
+.filters {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px;
+}
+.filters input[type="search"], .filters select {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+}
+.filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.filters .check { display: flex; align-items: center; gap: 5px; font-size: 14px; }
+.filter-count { margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .filters select { flex: 1 1 45%; }
+  .filter-count { margin-left: 0; }
+}
+
 h2.day {
   position: sticky; top: 0; z-index: 2;
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;

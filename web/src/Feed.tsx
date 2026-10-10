@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import FilterBar, { applyFilters, EMPTY, loadFilters, saveFilters, type Filters } from "./Filters";
 import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 type Tab = "new" | "applied" | "skipped" | "all";
@@ -79,6 +80,11 @@ export default function Feed() {
   const replace = (p: Posting) => setRows((rs) => rs && rs.map((r) => (r.id === p.id ? p : r)));
   const remove = (id: string) => setRows((rs) => rs && rs.filter((r) => r.id !== id));
 
+  const [filters, setFilters] = useState<Filters>(loadFilters);
+  const changeFilters = (f: Filters) => { setFilters(f); saveFilters(f); };
+  const visible = useMemo(() => (rows ? applyFilters(rows, filters) : null), [rows, filters]);
+  const sources = useMemo(() => [...new Set((rows ?? []).map((r) => r.source))].sort(), [rows]);
+
   return (
     <div className="wrap">
       <header>
@@ -92,13 +98,19 @@ export default function Feed() {
           </button>
         ))}
       </div>
+      <FilterBar value={filters} onChange={changeFilters} sources={sources}
+                 shown={visible?.length ?? 0} total={rows?.length ?? 0} />
       {error && <p className="notice">{error}</p>}
-      {rows === null ? (
+      {rows === null || visible === null ? (
         <p className="empty">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="empty">{tab === "new" ? "Nothing to triage. 🎉" : "Nothing here yet."}</p>
+      ) : visible.length === 0 ? (
+        <p className="empty">
+          No jobs match these filters. <button className="link" onClick={() => changeFilters(EMPTY)}>Clear filters</button>
+        </p>
       ) : (
-        groupByDay(rows).map(([day, items]) => {
+        groupByDay(visible).map(([day, items]) => {
           const open = items.filter((p) => p.triage_status === "new").length;
           return (
             <section key={day}>

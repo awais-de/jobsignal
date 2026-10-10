@@ -48,7 +48,9 @@ def test_tables_unreadable(anon, table):
 @pytest.mark.parametrize("table", TABLES)
 def test_tables_unwritable(anon, table):
     resp = anon.post(f"/{table}", json={})
-    assert resp.status_code in (401, 403, 404)
+    # Postgres rejects inserts into non-updatable views (55000) before checking privileges.
+    structurally_read_only = resp.status_code == 500 and resp.json().get("code") == "55000"
+    assert resp.status_code in (401, 403, 404) or structurally_read_only, f"{table}: HTTP {resp.status_code}"
 
 
 @pytest.mark.parametrize("fn", RPCS)

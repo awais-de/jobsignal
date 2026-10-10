@@ -54,13 +54,13 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", exc)
         return 1
 
-    db = Database.from_env()
-    if db is None and not args.dry_run:
-        log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set for a real run.")
-        return 1
-
-    run_id = db.start_run(dry_run=False) if db and not args.dry_run else None
+    db: Database | None = None
+    run_id: str | None = None
     try:
+        db = Database.from_env()
+        if db is None and not args.dry_run:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY must be set for a real run.")
+        run_id = db.start_run(dry_run=False) if db and not args.dry_run else None
         stats, digest = run_pipeline(profile, sources_cfg, db, run_id)
         subject, text, html = digest
         if args.dry_run:

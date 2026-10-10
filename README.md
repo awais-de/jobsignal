@@ -7,7 +7,7 @@ A personal job-search system with two parts:
 
 It runs on free tiers only: GitHub Actions, Supabase, Google Apps Script, and free LLM API tiers.
 
-> **Status:** Phase 0 (project setup). See the [roadmap](#roadmap).
+> **Status:** Phase 1 (daily feed from the Bundesagentur API, plain email digest) is live. See the [roadmap](#roadmap).
 
 ## Architecture
 

@@ -197,8 +197,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
         _flush_llm(enricher, db)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
-        stats["expired_applications"] = db.expire_stale_applications(
-            int(load_config("tracking.yaml").get("auto_expiry_days", 30)))
+        tracking = load_config("tracking.yaml")
+        stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
+        # Retention (spec 13): email bodies are kept for 12 months.
+        stats["purged_email_bodies"] = db.purge_old_email_bodies(int(tracking.get("email_body_retention_months", 12)))
 
     # 7. digest
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")

@@ -133,6 +133,9 @@ class Database:
     def expire_stale_applications(self, days: int) -> int:
         return int(self._req("POST", "/rpc/expire_stale_applications", json={"p_days": days}) or 0)
 
+    def purge_old_email_bodies(self, months: int) -> int:
+        return int(self._req("POST", "/rpc/purge_old_email_bodies", json={"p_months": months}) or 0)
+
     def manual_postings_without_hash(self) -> list[dict[str, Any]]:
         """Postings added by hand get a placeholder hash; the pipeline computes the real one."""
         return self._req("GET", "/job_postings", params={

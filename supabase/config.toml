@@ -421,3 +421,7 @@ verify_jwt = false
 [functions.manual-add]
 # The function verifies the session itself (auth /user + app_owner), so the gateway check is off.
 verify_jwt = false
+
+[functions.ingest-email]
+# Called by the Apps Script bridge with the x-ingest-secret header, not a user session.
+verify_jwt = false

@@ -84,6 +84,12 @@ export default function Feed() {
   const replace = (p: Posting) => setRows((rs) => rs && rs.map((r) => (r.id === p.id ? p : r)));
   const remove = (id: string) => setRows((rs) => rs && rs.filter((r) => r.id !== id));
 
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  useEffect(() => {
+    supabase.from("portal_accounts").select("company_name,login_email,portal_domain").is("deleted_at", null)
+      .then(({ data }) => data && setAccounts(data as Account[]));
+  }, []);
+
   const [filters, setFilters] = useState<Filters>(loadFilters);
   const changeFilters = (f: Filters) => { setFilters(f); saveFilters(f); };
   const visible = useMemo(() => (rows ? applyFilters(rows, filters) : null), [rows, filters]);
@@ -123,7 +129,8 @@ export default function Feed() {
               </h2>
               <div className="grid">
                 {items.map((p) => (
-                  <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError} />
+                  <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError}
+                        account={accountFor(p.company_name, accounts)} />
                 ))}
               </div>
             </section>
@@ -137,7 +144,8 @@ export default function Feed() {
   );
 }
 
-function Card({ p, tab, onChange, onGone, onError }: {
+function Card({ p, tab, onChange, onGone, onError, account }: {
+  account?: Account;
   p: Posting;
   tab: Tab;
   onChange: (p: Posting) => void;
@@ -205,6 +213,7 @@ function Card({ p, tab, onChange, onGone, onError }: {
           </span>
         )}
         {p.manually_edited && <span className="badge">edited</span>}
+        {account && <span className="badge account" title={account.portal_domain ?? undefined}>account: {account.login_email}</span>}
       </div>
       <div className="title">
         <Editable value={p.title} onSave={(v) => save("title", v)} />
@@ -309,4 +318,17 @@ function label(reason: string) {
 
 function fmtDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
+
+// Existing portal account at this company (spec 7.6): shown before applying, to avoid duplicates.
+type Account = { company_name: string; login_email: string; portal_domain: string | null };
+const LEGAL = /\b(gmbh|ag|se|kg|kgaa|ug|ohg|gbr|e\.?v|inc|ltd|llc|bv|sa|plc|co|corp|& co)\b\.?/g;
+const norm = (s: string) => s.toLowerCase().replace(LEGAL, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function accountFor(company: string, accounts: Account[]): Account | undefined {
+  const c = norm(company);
+  if (c.length < 3) return undefined;
+  return accounts.find((a) => {
+    const n = norm(a.company_name);
+    return n.length >= 3 && (n === c || ` ${c} `.includes(` ${n} `) || ` ${n} `.includes(` ${c} `));
+  });
 }

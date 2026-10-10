@@ -1,0 +1,48 @@
+// Rules-based email classification (spec 10.3). No LLM reads email (decision 14):
+// conflicts and no-match cases get low confidence and go to the manual queue.
+
+export type Category =
+  | "application_confirmation" | "rejection" | "interview_invitation" | "assessment"
+  | "info_request" | "offer" | "account_created" | "job_alert" | "other";
+
+export type Classification = { category: Category; confidence: number; candidates: Category[] };
+
+// Job-alert senders (spec 7.1 tier 5). Parsed into postings in Phase 6; ignored until then.
+const ALERT_DOMAINS = ["linkedin.com", "xing.com", "stepstone.de", "stepstone.com", "indeed.com", "indeed.de",
+                       "jobs.lever.co", "glassdoor.com", "glassdoor.de"];
+const ALERT_SUBJECT = /\b(job ?alert|jobs? für sie|neue jobs|new jobs for you|jobs you might|passende jobs|job-empfehlungen|jobempfehlung)\b/i;
+
+// Patterns are phrases, not single words: confirmation templates often mention interviews
+// ("we'll invite you to an interview if…") and many emails contain "leider" somewhere.
+const RULES: [Category, RegExp][] = [
+  ["offer", /\b(vertragsangebot|arbeitsvertrag(sentwurf)?|angebot (für|über) (eine|die) (anstellung|position)|offer letter|job offer|pleased to offer|happy to offer you|we would like to offer you)\b/i],
+  ["interview_invitation", /(einladung zu(m|r)? (einem |einer )?(persönlichen |telefonischen |virtuellen |digitalen |ersten |zweiten )?(vorstellungsgespräch|kennenlern(gespräch|termin)|interview|gespräch|video-?call)|laden (wir )?sie (gerne |herzlich )?(zu|zum|zur) (einem |einer )?(persönlichen |ersten |telefonischen |virtuellen )?(vorstellungsgespräch|gespräch|interview|kennenlern)|möchten (wir )?sie (gerne |gern )?(kennenlernen|zu einem gespräch)|terminvorschl(a|ä)g|invite you (to|for) (an?|the) (first |initial |technical |video |phone )?(interview|call|conversation|chat)|invitation to (an? )?(interview|call)|(schedule|book) (an?|your) (interview|call|time)|next step (is|would be) (an?|the) (interview|call))/i],
+  ["assessment", /(coding[- ]challenge|case[- ]study|testaufgabe|probeaufgabe|online[- ]test|online[- ]assessment|take[- ]home|technical (assessment|task|exercise)|hackerrank|codility|coderbyte|testgorilla)/i],
+  ["info_request", /(fehlende unterlagen|unterlagen nachreichen|bitte reichen sie|bitte senden sie uns|please (provide|send us|submit) (the |your )?(missing|additional|following)|additional documents|missing documents)/i],
+  ["rejection", /(leider (müssen|können) wir (ihnen )?(mitteilen|keine|nicht)|(nicht|keine) (weiter )?(berücksichtig|in die engere auswahl)|absage|anderen? (kandidat|bewerber)(in|innen)?en? (entschieden|den vorzug)|für (eine|einen) andere(n)? (kandidat|bewerber)|unfortunately,? (we|i) (will not|won't|are unable|have decided|cannot|can't|must)|not (be )?(moving|move|proceed(ing)?) forward|decided to (move forward|proceed|pursue|go ahead) with other|other candidates (whose|who)|regret to inform|position has been filled|stelle (wurde )?(bereits )?(anderweitig )?besetzt)/i],
+  ["application_confirmation", /(eingangsbestätigung|bewerbung (ist )?(bei uns )?(erfolgreich )?eingegangen|(vielen |herzlichen )?dank für (ihre|deine) bewerbung|wir haben (ihre|deine) bewerbung (erhalten|bekommen)|we (have )?received your application|thank you for (your application|applying)|thanks for applying|application (has been )?received|your application (for|to) .{0,80} (has been|was) (submitted|received))/i],
+  ["account_created", /(konto (wurde )?(erfolgreich )?erstellt|registrierung (zu )?(bestätigen|abzuschließen|abschließen|erfolgreich)|e-?mail-?adresse (zu )?(bestätigen|verifizieren)|(bestätigen|verifizieren) sie (bitte )?(ihre|deine) e-?mail|verify your (email|account)|confirm your (email|account|registration)|account (has been )?created|activate your account|welcome to .{0,40}(career|talent|job) (portal|community|network))/i],
+];
+
+// When several categories match, the more specific/urgent one wins (and confidence drops).
+const PRIORITY: Category[] = ["offer", "interview_invitation", "assessment", "info_request", "rejection",
+                              "account_created", "application_confirmation"];
+
+export function classify(fromDomain: string, subject: string, body: string): Classification {
+  const domain = fromDomain.toLowerCase();
+  if (ALERT_DOMAINS.some((d) => domain === d || domain.endsWith("." + d)) && (ALERT_SUBJECT.test(subject) || /job/i.test(subject))) {
+    return { category: "job_alert", confidence: 0.9, candidates: ["job_alert"] };
+  }
+  // Subject is the strongest signal; body checked on its first part (templates put the gist up top).
+  const head = `${subject}\n${body.slice(0, 4000)}`;
+  const hits = RULES.filter(([, re]) => re.test(head)).map(([c]) => c);
+  if (hits.length === 0) return { category: "other", confidence: 0.5, candidates: [] };
+  const ordered = PRIORITY.filter((c) => hits.includes(c));
+  // A confirmation that merely mentions a later interview stays a confirmation when the subject says so.
+  if (ordered.length > 1 && ordered.includes("application_confirmation") && ordered.includes("interview_invitation")
+      && RULES.find(([c]) => c === "application_confirmation")![1].test(subject)
+      && !RULES.find(([c]) => c === "interview_invitation")![1].test(subject)) {
+    return { category: "application_confirmation", confidence: 0.7, candidates: ordered };
+  }
+  return { category: ordered[0], confidence: ordered.length === 1 ? 0.9 : 0.6, candidates: ordered };
+}

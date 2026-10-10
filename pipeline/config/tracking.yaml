@@ -1,2 +1,3 @@
 # Application tracking settings (spec 10.6). STARTING VALUEs.
 auto_expiry_days: 30      # 'applied'/'confirmed' with no update for this long gets a 'no_response' event
+email_body_retention_months: 12   # inbound email bodies are nulled after this (spec 13)

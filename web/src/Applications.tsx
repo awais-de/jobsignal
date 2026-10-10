@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import EmailQueue, { gmailLink } from "./EmailQueue";
 import { CoverLetter, RESUME_COLUMNS, ResumeLink, ResumePicker, type Resume } from "./Resumes";
 import { sourceLabel, supabase } from "./supabase";
 
@@ -12,6 +13,7 @@ type Event = {
   occurred_at: string;
   source: string;
   notes: string | null;
+  inbound_emails?: { gmail_message_id: string } | null;
 };
 
 type App = {
@@ -98,12 +100,12 @@ export default function Applications() {
     if (list.length) {
       const ev = await supabase
         .from("application_events")
-        .select("id,application_id,event_type,occurred_at,source,notes")
+        .select("id,application_id,event_type,occurred_at,source,notes,inbound_emails(gmail_message_id)")
         .in("application_id", list.map((a) => a.id))
         .order("occurred_at", { ascending: false })
         .order("created_at", { ascending: false });
       if (ev.error) setError(ev.error.message);
-      else setEvents(ev.data as Event[]);
+      else setEvents(ev.data as unknown as Event[]);   // inbound_emails is many-to-one: an object, not a list
     }
   }, []);
 
@@ -158,6 +160,8 @@ export default function Applications() {
 
   return (
     <>
+      <EmailQueue onAssigned={load}
+                  apps={apps.map((a) => ({ id: a.id, label: `${a.job_postings.company_name} – ${a.job_postings.title}` }))} />
       <div className="tabs">
         {STATUS_FILTERS.map((f) => {
           const n = apps.filter((a) => f.test(statusOf(a.id)?.event_type ?? "drafted")).length;
@@ -270,6 +274,9 @@ function Detail({ app, events, onNotes, children }: {
               <span className="muted">{fmt(e.occurred_at, true)}</span>{" "}
               <strong>{EVENT_LABELS[e.event_type] ?? e.event_type}</strong>
               {e.source !== "user" && <span className="badge">{e.source}</span>}
+              {e.inbound_emails && (
+                <> <a href={gmailLink(e.inbound_emails.gmail_message_id)} target="_blank" rel="noreferrer">email ↗</a></>
+              )}
               {e.notes && <div className="muted">{e.notes}</div>}
             </li>
           ))}

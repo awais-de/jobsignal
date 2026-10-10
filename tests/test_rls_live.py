@@ -14,7 +14,7 @@ KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
 pytestmark = pytest.mark.skipif(not (URL and KEY), reason="needs SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY")
 
 TABLES = ["job_postings", "pipeline_runs", "source_runs", "applications", "application_events",
-          "used_action_tokens", "app_owner", "application_status", "resumes"]
+          "used_action_tokens", "app_owner", "application_status", "resumes", "inbound_emails", "portal_accounts"]
 # Real arguments, so a 404 can't come from a signature mismatch instead of missing permission.
 ZERO = "00000000-0000-0000-0000-000000000000"
 RPCS = {
@@ -23,6 +23,8 @@ RPCS = {
     "triage_posting": {"p_posting_id": ZERO, "p_action": "skip", "p_reason": "other"},
     "is_owner": {},
     "expire_stale_applications": {"p_days": 30},
+    "assign_inbound_email": {"p_email_id": ZERO, "p_application_id": None},
+    "purge_old_email_bodies": {"p_months": 12},
 }
 
 

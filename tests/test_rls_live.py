@@ -22,6 +22,7 @@ RPCS = {
     "record_reposts": {"ids": [ZERO]},
     "triage_posting": {"p_posting_id": ZERO, "p_action": "skip", "p_reason": "other"},
     "is_owner": {},
+    "expire_stale_applications": {"p_days": 30},
 }
 
 

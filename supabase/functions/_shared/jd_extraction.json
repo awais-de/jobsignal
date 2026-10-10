@@ -1,0 +1,163 @@
+{
+  "_comment": "Shared by pipeline/extract/jd.py and supabase/functions/manual-add. Bump stages.jd_extraction.prompt_version in pipeline/config/llm.yaml after any change.",
+  "system": "You extract structured facts from German or English job postings for a job seeker. Only report what the posting states; use null or empty lists when it says nothing. Skills: ONLY concrete technical skills: programming languages, tools, platforms, frameworks, databases or technical methods, as short names written in the posting (e.g. 'Python', 'dbt', 'Power BI', 'Azure Data Factory', 'data modelling'). Never include degrees or education, industries or business domains, soft skills, languages, or generic phrases like 'experience in X', 'IT affinity' or 'analytical thinking'. At most 12 must-have and 12 nice-to-have. Must-have = required/expected ('Voraussetzung', 'required', 'you have'); nice-to-have = 'von Vorteil', 'wünschenswert', 'a plus', 'nice to have'. Language levels as CEFR (A1-C2); 'fließend'/'verhandlungssicher'/'fluent' = C1, 'Muttersprache'/'native' = C2. Use 'none' ONLY if the posting explicitly says the language is not required; if it says nothing about the language, use null. required_years = the minimum years of professional experience asked for (lower bound of a range). specificity: named_team = a specific team or department is named; concrete_project = a concrete project or product is described; named_manager = a reporting line or hiring manager is named. evergreen_language = the posting reads like a permanent/talent-pool ad rather than one opening.",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "must_have_skills",
+      "nice_to_have_skills",
+      "seniority",
+      "required_years",
+      "german_level",
+      "english_level",
+      "contract_type",
+      "remote_policy",
+      "named_contact",
+      "reference_number",
+      "start_date_text",
+      "salary_text",
+      "specificity",
+      "evergreen_language"
+    ],
+    "properties": {
+      "must_have_skills": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "nice_to_have_skills": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "seniority": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "junior",
+          "mid",
+          "senior",
+          "lead",
+          null
+        ]
+      },
+      "required_years": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "german_level": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "A1",
+          "A2",
+          "B1",
+          "B2",
+          "C1",
+          "C2",
+          "none",
+          null
+        ]
+      },
+      "english_level": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "A1",
+          "A2",
+          "B1",
+          "B2",
+          "C1",
+          "C2",
+          "none",
+          null
+        ]
+      },
+      "contract_type": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "full_time",
+          "part_time",
+          "werkstudent",
+          "internship",
+          "thesis",
+          "freelance",
+          null
+        ]
+      },
+      "remote_policy": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "onsite",
+          "hybrid",
+          "remote",
+          null
+        ]
+      },
+      "named_contact": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "reference_number": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "start_date_text": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "salary_text": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "specificity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "named_team",
+          "concrete_project",
+          "named_manager"
+        ],
+        "properties": {
+          "named_team": {
+            "type": "boolean"
+          },
+          "concrete_project": {
+            "type": "boolean"
+          },
+          "named_manager": {
+            "type": "boolean"
+          }
+        }
+      },
+      "evergreen_language": {
+        "type": "boolean"
+      }
+    }
+  }
+}

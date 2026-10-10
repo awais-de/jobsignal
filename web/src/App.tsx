@@ -5,6 +5,7 @@ import ActionPage from "./ActionPage";
 import Applications from "./Applications";
 import Feed from "./Feed";
 import Login from "./Login";
+import ManualAdd from "./ManualAdd";
 
 export default function App() {
   // /a?t=... is the confirm page for email action links; it needs no login (the token is the auth).
@@ -25,8 +26,9 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications";
-const viewFromHash = (): View => (window.location.hash === "#applications" ? "applications" : "feed");
+type View = "feed" | "applications" | "add";
+const viewFromHash = (): View =>
+  window.location.hash === "#applications" ? "applications" : window.location.hash === "#add" ? "add" : "feed";
 
 function Shell() {
   const [view, setView] = useState<View>(viewFromHash);
@@ -44,10 +46,11 @@ function Shell() {
           <span className="brand">jobsignal</span>
           <a href="#" className={view === "feed" ? "active" : ""}>Feed</a>
           <a href="#applications" className={view === "applications" ? "active" : ""}>Applications</a>
+          <a href="#add" className={view === "add" ? "active" : ""}>+ Add</a>
         </nav>
         <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
       </header>
-      {view === "feed" ? <Feed /> : <Applications />}
+      {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : <ManualAdd />}
     </div>
   );
 }

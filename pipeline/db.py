@@ -129,6 +129,15 @@ class Database:
         for chunk in _chunks(rows, BATCH):
             self._req("POST", "/llm_usage", json=chunk)
 
+    # -- tracking ---------------------------------------------------------------
+    def expire_stale_applications(self, days: int) -> int:
+        return int(self._req("POST", "/rpc/expire_stale_applications", json={"p_days": days}) or 0)
+
+    def manual_postings_without_hash(self) -> list[dict[str, Any]]:
+        """Postings added by hand get a placeholder hash; the pipeline computes the real one."""
+        return self._req("GET", "/job_postings", params={
+            "select": "id,company_name,title,city", "dedupe_hash": "like.manual:*"})
+
     def mark_surfaced(self, ids: list[str], day: date) -> None:
         for chunk in _chunks(ids, BATCH):
             self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})"},

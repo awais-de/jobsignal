@@ -6,68 +6,22 @@ model's output is constrained by a strict JSON schema, so nothing in it can stee
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from pipeline.extract import regex
 from pipeline.llm.router import Router, cache_key
 
 STAGE = "jd_extraction"
-CEFR = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
-SYSTEM = (
-    "You extract structured facts from German or English job postings for a job seeker. "
-    "Only report what the posting states; use null or empty lists when it says nothing. "
-    "Skills: ONLY concrete technical skills: programming languages, tools, platforms, frameworks, "
-    "databases or technical methods, as short names written in the posting (e.g. 'Python', 'dbt', "
-    "'Power BI', 'Azure Data Factory', 'data modelling'). Never include degrees or education, "
-    "industries or business domains, soft skills, languages, or generic phrases like "
-    "'experience in X', 'IT affinity' or 'analytical thinking'. At most 12 must-have and 12 nice-to-have. "
-    "Must-have = required/expected ('Voraussetzung', 'required', 'you have'); nice-to-have = "
-    "'von Vorteil', 'wünschenswert', 'a plus', 'nice to have'. "
-    "Language levels as CEFR (A1-C2); 'fließend'/'verhandlungssicher'/'fluent' = C1, "
-    "'Muttersprache'/'native' = C2. Use 'none' ONLY if the posting explicitly says the language is "
-    "not required; if it says nothing about the language, use null. "
-    "required_years = the minimum years of professional experience asked for (lower bound of a range). "
-    "specificity: named_team = a specific team or department is named; concrete_project = a concrete "
-    "project or product is described; named_manager = a reporting line or hiring manager is named. "
-    "evergreen_language = the posting reads like a permanent/talent-pool ad rather than one opening."
-)
-
-_NULLABLE_STR = {"type": ["string", "null"]}
-_LEVEL = {"type": ["string", "null"], "enum": CEFR + ["none", None]}
-
-SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["must_have_skills", "nice_to_have_skills", "seniority", "required_years", "german_level",
-                 "english_level", "contract_type", "remote_policy", "named_contact", "reference_number",
-                 "start_date_text", "salary_text", "specificity", "evergreen_language"],
-    "properties": {
-        "must_have_skills": {"type": "array", "items": {"type": "string"}},
-        "nice_to_have_skills": {"type": "array", "items": {"type": "string"}},
-        "seniority": {"type": ["string", "null"], "enum": ["junior", "mid", "senior", "lead", None]},
-        "required_years": {"type": ["number", "null"]},
-        "german_level": _LEVEL,
-        "english_level": _LEVEL,
-        "contract_type": {"type": ["string", "null"],
-                          "enum": ["full_time", "part_time", "werkstudent", "internship", "thesis",
-                                   "freelance", None]},
-        "remote_policy": {"type": ["string", "null"], "enum": ["onsite", "hybrid", "remote", None]},
-        "named_contact": _NULLABLE_STR,
-        "reference_number": _NULLABLE_STR,
-        "start_date_text": _NULLABLE_STR,
-        "salary_text": _NULLABLE_STR,
-        "specificity": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["named_team", "concrete_project", "named_manager"],
-            "properties": {k: {"type": "boolean"} for k in ("named_team", "concrete_project", "named_manager")},
-        },
-        "evergreen_language": {"type": "boolean"},
-    },
-}
+# One prompt and schema for the pipeline and the manual-add Edge Function (single source of truth).
+_SHARED = Path(__file__).resolve().parents[2] / "supabase" / "functions" / "_shared" / "jd_extraction.json"
+_PROMPT = json.loads(_SHARED.read_text(encoding="utf-8"))
+SYSTEM: str = _PROMPT["system"]
+SCHEMA: dict[str, Any] = _PROMPT["schema"]
 
 # Lines that are almost never about the job itself (benefits, legal, boilerplate).
 _BOILERPLATE = re.compile(

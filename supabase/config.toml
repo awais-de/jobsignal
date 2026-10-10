@@ -417,3 +417,7 @@ enabled = true
 [functions.action]
 # Called from the public /a page with a signed token instead of a user session.
 verify_jwt = false
+
+[functions.manual-add]
+# The function verifies the session itself (auth /user + app_owner), so the gateway check is off.
+verify_jwt = false

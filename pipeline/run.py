@@ -34,6 +34,7 @@ from pipeline.deliver import send_email
 from pipeline.digest import build_digest
 from pipeline.filters import HardFilters
 from pipeline.models import Candidate, RawPosting
+from pipeline.normalize import dedupe_hash
 from pipeline.sources.ba import BundesagenturSource
 
 log = logging.getLogger("jobsignal")
@@ -123,7 +124,11 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                    "error": type(exc).__name__, "ms": _ms(t0)})
             log.warning("source %s failed: %s", source, type(exc).__name__)
 
-    # 2. dedupe
+    # 2. dedupe (hand-added postings first get their real hash, so a job applied to by hand
+    #    isn't surfaced again when a source lists it)
+    if run_id and db:
+        for r in db.manual_postings_without_hash():
+            db.update_posting(r["id"], {"dedupe_hash": dedupe_hash(r["company_name"], r["title"], r["city"])})
     candidates = build_candidates(raws)
     stored = db.stored_for(candidates) if db else []
     apply_dedupe(candidates, stored, now=now)
@@ -191,6 +196,9 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             db.record_source_run(run_id, r["source"], r["status"], r["fetched"],
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
         _flush_llm(enricher, db)
+        # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
+        stats["expired_applications"] = db.expire_stale_applications(
+            int(load_config("tracking.yaml").get("auto_expiry_days", 30)))
 
     # 7. digest
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")

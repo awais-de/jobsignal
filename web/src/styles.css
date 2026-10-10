@@ -231,3 +231,18 @@ ol.timeline li::before {
   .skill.hit { background: #033a16; color: #7ee787; }
   .skill.miss { background: #5d0f12; color: #ffa198; }
 }
+
+/* Manual add */
+.add { max-width: 720px; }
+.add h2 { font-size: 18px; margin: 4px 0; }
+.add .wide, .review input {
+  width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; margin-bottom: 8px;
+}
+.add textarea.wide { resize: vertical; }
+.review { margin-top: 14px; gap: 6px; }
+.review label, .review .label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+.review input { margin-bottom: 4px; }
+.review .picker { color: var(--text); }
+.review .extracted { font-size: 13px; padding: 6px 0; }
+.review > button { align-self: flex-start; margin-top: 6px; }

@@ -1,5 +1,6 @@
 # Ranking weights (spec 7.9). All STARTING VALUEs: tune once there are labels.
 w_fit: 0.70                     # weight of must-have skill overlap (0-100)
+min_must_haves: 3               # fit = matched / max(must-haves, this): few must-haves can't reach 100%
 preferred_skill_bonus: 2        # per preferred skill (profile.preferences.skills_bonus) in the posting
 preferred_skill_bonus_cap: 10
 remote_bonus: 5                 # remote or hybrid, when profile.preferences.remote_bonus is on

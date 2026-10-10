@@ -18,7 +18,9 @@ import httpx
 from pipeline.llm.base import Completion, LLMError, Unavailable
 
 URL = "https://api.groq.com/openai/v1/chat/completions"
-MAX_WAIT_SECONDS = 20  # wait out a short rate-limit window instead of falling through
+# Free-tier token-per-minute limits allow ~4 job descriptions a minute, so a pause of up
+# to a minute is normal and worth waiting out; longer waits (daily quota) fall through.
+MAX_WAIT_SECONDS = 65
 
 
 class GroqProvider:
@@ -42,7 +44,7 @@ class GroqProvider:
         if self.reasoning_effort and self.model.startswith("openai/gpt-oss"):
             body["reasoning_effort"] = self.reasoning_effort
 
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 resp = self.client.post(URL, json=body)
             except httpx.TimeoutException:
@@ -52,7 +54,7 @@ class GroqProvider:
 
             if resp.status_code == 429:
                 wait = _retry_after(resp)
-                if attempt == 0 and wait is not None and wait <= MAX_WAIT_SECONDS:
+                if attempt < 2 and wait is not None and wait <= MAX_WAIT_SECONDS:
                     time.sleep(wait + 0.5)
                     continue
                 raise Unavailable("rate_limited")

@@ -55,7 +55,8 @@ def score(fields: dict[str, Any], remote_policy: str | None, index: SkillIndex,
             missing.append(skill)
     nice_matched = [s for s in nice if index.match(s)]
 
-    fit = 100.0 * len(matched) / max(len(must), 1) if must else 0.0
+    # Floor on the denominator: 2 of 2 must-haves is weaker evidence than 6 of 7.
+    fit = 100.0 * len(matched) / max(len(must), int(weights.get("min_must_haves", 1))) if must else 0.0
 
     prefs = profile.get("preferences") or {}
     preferred = {_norm(p) for p in prefs.get("skills_bonus", [])}

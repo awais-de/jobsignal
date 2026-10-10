@@ -33,6 +33,11 @@ def test_score_and_details():
     assert d["track"] == "data_engineering"
 
 
+def test_few_must_haves_cannot_reach_full_fit():
+    fit, _, _ = score({"must_have_skills": ["Python", "SQL"]}, None, INDEX, PROFILE, {**WEIGHTS, "min_must_haves": 3})
+    assert round(fit, 1) == 66.7
+
+
 def test_no_must_haves_scores_zero_fit():
     fit, rank, d = score({"must_have_skills": []}, None, INDEX, PROFILE, WEIGHTS)
     assert fit == 0 and rank == 0 and d["matched"] == []

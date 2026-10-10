@@ -176,7 +176,7 @@ def test_groq_request_and_rate_limit():
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(json.loads(request.content))
         if len(seen) == 1:
-            return httpx.Response(429, headers={"retry-after": "60"})
+            return httpx.Response(429, headers={"retry-after": "3600"})    # daily quota: fall through
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(LLM_RESULT)}}],
                                          "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
 

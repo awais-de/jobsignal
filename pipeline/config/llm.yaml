@@ -11,7 +11,7 @@ providers:
 
 stages:
   jd_extraction:
-    prompt_version: 'jd-v1'
+    prompt_version: 'jd-v2'   # bump on any prompt change: invalidates the cache
     max_calls_per_run: 80          # hard cap per run, across providers
     max_input_chars: 8000          # description is trimmed to this before sending
     providers:                     # tried in order; falls through on rate limit / errors

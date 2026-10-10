@@ -1,0 +1,36 @@
+# Personal, never public (spec section 13.1)
+private/
+config/profile.yaml
+pipeline/config/profile.yaml
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*service-account*.json
+*credentials*.json
+
+# Supabase local state
+supabase/.temp/
+supabase/.branches/
+
+# Local tooling
+.claude/
+.DS_Store
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / web
+node_modules/
+web/dist/

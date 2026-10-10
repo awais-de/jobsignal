@@ -18,7 +18,11 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - run: pytest -q -rs
+        env:
+          # Publishable key is public by design; used only by the RLS test.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
 
   gitleaks:
     runs-on: ubuntu-latest

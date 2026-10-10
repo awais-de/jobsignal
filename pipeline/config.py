@@ -16,9 +16,10 @@ import yaml
 
 CONFIG_DIR = Path(__file__).parent / "config"
 PROFILE_PATH = CONFIG_DIR / "profile.yaml"
+SOURCES_PATH = CONFIG_DIR / "sources.yaml"
 PROFILE_ENV = "PROFILE_YAML"
 
-REQUIRED_KEYS = ("titles", "location", "contract_types", "dealbreakers", "feed", "freshness_hours")
+REQUIRED_KEYS = ("search_terms", "titles", "location", "contract_types", "dealbreakers", "feed", "freshness_hours")
 
 
 class ConfigError(Exception):
@@ -51,6 +52,10 @@ def load_profile(env: dict[str, str] | None = None, path: Path = PROFILE_PATH) -
     if missing:
         raise ConfigError(f"Profile from {source} is missing keys: {', '.join(missing)}")
     return profile
+
+
+def load_sources(path: Path = SOURCES_PATH) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _line(exc: yaml.YAMLError) -> str:

@@ -1,6 +1,12 @@
 # Example profile with made-up values. Copy to profile.yaml (gitignored) and edit.
 # In GitHub Actions the real file's contents go in the PROFILE_YAML secret.
 
+search_terms:                    # free-text queries for the Bundesagentur search
+  - 'data engineer'
+  - 'data scientist'
+
+exclude_agencies: false
+
 titles:
   allow:
     - 'data engineer'

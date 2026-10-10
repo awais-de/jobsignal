@@ -1,0 +1,10 @@
+# Source settings. Public: no personal values here.
+# Search terms live in the (private) profile under `search_terms`.
+
+ba_api:
+  enabled: true
+  published_within_days: 2     # matches freshness_hours: 48
+  page_size: 100
+  max_pages_per_term: 5
+  request_delay_seconds: 0.5   # polite pacing between requests
+  max_detail_fetches: 150      # per run; only for postings that passed the filters

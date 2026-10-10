@@ -216,3 +216,18 @@ ol.timeline li::before {
 .register .row { justify-content: space-between; }
 .detail-body h3 + .doc-row { margin-top: 2px; }
 .detail-body h3:not(:first-child) { margin-top: 12px; }
+
+/* Why it ranked */
+.why { font-size: 12px; margin-top: 6px; }
+.why .skills { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 3px; }
+.score {
+  font-weight: 700; font-size: 12px; min-width: 26px; text-align: center; padding: 1px 6px;
+  border-radius: 10px; background: var(--accent); color: #fff;
+}
+.skill { padding: 0 6px; border-radius: 4px; font-size: 11px; }
+.skill.hit { background: #dafbe1; color: #116329; }
+.skill.miss { background: #ffebe9; color: #a40e26; text-decoration: line-through; text-decoration-thickness: 1px; }
+@media (prefers-color-scheme: dark) {
+  .skill.hit { background: #033a16; color: #7ee787; }
+  .skill.miss { background: #5d0f12; color: #ffa198; }
+}

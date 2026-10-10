@@ -48,8 +48,14 @@ export type Posting = {
   triage_status: "new" | "applied" | "skipped";
   skip_reason: string | null;
   manually_edited: boolean;
+  extraction_status: string;
+  rank_score: number | null;
+  rank_details: { matched?: string[]; missing?: string[]; track?: string | null } | null;
+  german_level: string | null;
+  required_years: number | null;
 };
 
 export const POSTING_COLUMNS =
   "id,source,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
-  "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited";
+  "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited," +
+  "extraction_status,rank_score,rank_details,german_level,required_years";

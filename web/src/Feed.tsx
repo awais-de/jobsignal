@@ -36,13 +36,17 @@ function dayLabel(key: string): string {
   return key === today ? `Today · ${date}` : key === yesterday ? `Yesterday · ${date}` : date;
 }
 
+// Within a day: ranked jobs by score, then not-yet-analysed ones (spec 7.9).
+const byRank = (a: Posting, b: Posting) =>
+  (b.rank_score ?? -1) - (a.rank_score ?? -1) || (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
+
 function groupByDay(rows: Posting[]): [string, Posting[]][] {
   const groups = new Map<string, Posting[]>();
   for (const r of rows) {
     const k = dayKey(r.first_seen_at);
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
-  return [...groups.entries()];
+  return [...groups.entries()].map(([k, items]) => [k, items.sort(byRank)]);
 }
 
 export default function Feed() {
@@ -216,6 +220,7 @@ function Card({ p, tab, onChange, onGone, onError }: {
       <div className="meta">
         <Editable value={p.salary_text ?? ""} placeholder="no salary given" onSave={(v) => save("salary_text", v)} />
       </div>
+      <Why p={p} />
       <div className="actions">
         {p.triage_status === "new" && (
           <>
@@ -237,6 +242,33 @@ function Card({ p, tab, onChange, onGone, onError }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Why it ranked: skill match, missing skills, language and experience requirements. */
+function Why({ p }: { p: Posting }) {
+  if (p.extraction_status !== "done") {
+    return p.extraction_status === "skipped" ? null : <div className="why muted">Not analysed yet</div>;
+  }
+  const matched = p.rank_details?.matched ?? [];
+  const missing = p.rank_details?.missing ?? [];
+  const total = matched.length + missing.length;
+  const reqs = [
+    p.german_level === "none" ? "no German needed" : p.german_level ? `German ${p.german_level}` : null,
+    p.required_years != null ? `${p.required_years}+ yrs` : null,
+  ].filter(Boolean);
+  return (
+    <div className="why">
+      {total > 0 && (
+        <div className="skills">
+          <span className="score" title="Rank score">{Math.round(p.rank_score ?? 0)}</span>
+          <span className="muted">{matched.length}/{total} skills</span>
+          {matched.slice(0, 5).map((s) => <span key={s} className="skill hit">{s}</span>)}
+          {missing.slice(0, 4).map((s) => <span key={s} className="skill miss">{s}</span>)}
+        </div>
+      )}
+      {reqs.length > 0 && <div className="muted">{reqs.join(" · ")}</div>}
     </div>
   );
 }

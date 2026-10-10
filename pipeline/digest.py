@@ -9,7 +9,7 @@ from pipeline.models import RawPosting
 
 REMOTE_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site"}
 # Display names for job_postings.source; keep in sync with web/src/supabase.ts SOURCE_LABELS.
-SOURCE_LABELS = {"ba_api": "Arbeitsagentur", "manual": "Added by hand"}
+SOURCE_LABELS = {"ba_api": "Arbeitsagentur", "manual": "Added by hand", "sample": "Sample"}
 BUTTON = ("display:inline-block;padding:4px 12px;margin-right:8px;border-radius:4px;"
           "text-decoration:none;font-size:13px;font-weight:600;")
 

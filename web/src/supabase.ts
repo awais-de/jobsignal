@@ -23,6 +23,7 @@ export const SKIP_REASONS: { key: string; label: string }[] = [
 export const SOURCE_LABELS: Record<string, string> = {
   ba_api: "Arbeitsagentur",
   manual: "Added by hand",
+  sample: "Sample",
 };
 
 export function sourceLabel(source: string): string {

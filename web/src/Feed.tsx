@@ -3,10 +3,10 @@ import FilterBar, { applyFilters, EMPTY, loadFilters, saveFilters, type Filters 
 import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 type Tab = "new" | "applied" | "skipped" | "all";
+// Applied jobs live in the Applications view; the timeline still shows them with a badge.
 const TABS: { key: Tab; label: string }[] = [
   { key: "all", label: "Timeline" },
   { key: "new", label: "To triage" },
-  { key: "applied", label: "Applied" },
   { key: "skipped", label: "Skipped" },
 ];
 const TAB_KEY = "jobsignal.feed.tab";
@@ -86,11 +86,7 @@ export default function Feed() {
   const sources = useMemo(() => [...new Set((rows ?? []).map((r) => r.source))].sort(), [rows]);
 
   return (
-    <div className="wrap">
-      <header>
-        <h1>jobsignal</h1>
-        <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
-      </header>
+    <>
       <div className="tabs">
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>
@@ -133,7 +129,7 @@ export default function Feed() {
       {rows !== null && rows.length > 0 && (
         <p className="empty">Showing the last {HISTORY_DAYS} days.</p>
       )}
-    </div>
+    </>
   );
 }
 

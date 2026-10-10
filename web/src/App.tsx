@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import ActionPage from "./ActionPage";
+import Applications from "./Applications";
 import Feed from "./Feed";
 import Login from "./Login";
 
@@ -21,5 +22,32 @@ function Authed() {
   }, []);
 
   if (session === undefined) return null;
-  return session ? <Feed /> : <Login />;
+  return session ? <Shell /> : <Login />;
+}
+
+type View = "feed" | "applications";
+const viewFromHash = (): View => (window.location.hash === "#applications" ? "applications" : "feed");
+
+function Shell() {
+  const [view, setView] = useState<View>(viewFromHash);
+
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  return (
+    <div className="wrap">
+      <header>
+        <nav className="nav">
+          <span className="brand">jobsignal</span>
+          <a href="#" className={view === "feed" ? "active" : ""}>Feed</a>
+          <a href="#applications" className={view === "applications" ? "active" : ""}>Applications</a>
+        </nav>
+        <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
+      </header>
+      {view === "feed" ? <Feed /> : <Applications />}
+    </div>
+  );
 }

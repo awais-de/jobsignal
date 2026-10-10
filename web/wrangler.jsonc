@@ -1,0 +1,10 @@
+{
+  // Cloudflare Worker serving the built app as static assets (no server code).
+  "name": "jobsignal",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths such as /a serve index.html, so the React app handles them.
+    "not_found_handling": "single-page-application"
+  }
+}

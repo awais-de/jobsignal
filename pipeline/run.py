@@ -165,7 +165,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     # 6. digest
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
-    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links)
+    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links, app_url)
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"

@@ -28,6 +28,17 @@ def test_multi_location_and_agency_marker():
     assert "Köln +2 locations" in text and "agency" in text
 
 
+def test_overflow_and_timeline_link():
+    subject, text, html = build_digest([posting()], 5, date(2026, 10, 10), app_url="https://app.example.org")
+    assert "4 more in the timeline" in text and "Timeline (last 30 days): https://app.example.org" in text
+    assert 'href="https://app.example.org"' in html
+
+
+def test_empty_digest_links_timeline():
+    _, text, html = build_digest([], 0, date(2026, 10, 10), app_url="https://app.example.org")
+    assert "No new postings" in text and "Open the timeline" in html
+
+
 def test_html_is_escaped():
     _, _, html = build_digest([posting(title="<script>x</script>")], 1, date(2026, 10, 10))
     assert "<script>" not in html

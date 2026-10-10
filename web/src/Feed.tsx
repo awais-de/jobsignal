@@ -3,21 +3,45 @@ import { POSTING_COLUMNS, SKIP_REASONS, supabase, type Posting } from "./supabas
 
 type Tab = "new" | "applied" | "skipped" | "all";
 const TABS: { key: Tab; label: string }[] = [
+  { key: "all", label: "Timeline" },
   { key: "new", label: "To triage" },
   { key: "applied", label: "Applied" },
   { key: "skipped", label: "Skipped" },
-  { key: "all", label: "All" },
 ];
 const TAB_KEY = "jobsignal.feed.tab";
 const REMOTE: Record<string, string> = { remote: "Remote", hybrid: "Hybrid", onsite: "On-site" };
+const HISTORY_DAYS = 30;
 
 function loadTab(): Tab {
   try {
     const t = localStorage.getItem(TAB_KEY) as Tab | null;
-    return t && TABS.some((x) => x.key === t) ? t : "new";
+    return t && TABS.some((x) => x.key === t) ? t : "all";
   } catch {
-    return "new";
+    return "all";
   }
+}
+
+// Group by the local day the pipeline first found the job: every job that passed
+// the filters appears, including ones beyond the email's item cap.
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dayLabel(key: string): string {
+  const today = dayKey(new Date().toISOString());
+  const yesterday = dayKey(new Date(Date.now() - 86400000).toISOString());
+  const date = new Date(key + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" });
+  return key === today ? `Today · ${date}` : key === yesterday ? `Yesterday · ${date}` : date;
+}
+
+function groupByDay(rows: Posting[]): [string, Posting[]][] {
+  const groups = new Map<string, Posting[]>();
+  for (const r of rows) {
+    const k = dayKey(r.first_seen_at);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  return [...groups.entries()];
 }
 
 export default function Feed() {
@@ -26,14 +50,16 @@ export default function Feed() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    const since = new Date(Date.now() - HISTORY_DAYS * 86400000).toISOString();
     let q = supabase
       .from("job_postings")
       .select(POSTING_COLUMNS)
       .eq("filter_status", "passed")
       .is("deleted_at", null)
-      .order("surfaced_on", { ascending: false, nullsFirst: false })
+      .gte("first_seen_at", since)
       .order("first_seen_at", { ascending: false })
-      .limit(300);
+      .order("posted_date", { ascending: false, nullsFirst: false })
+      .limit(2000);
     if (tab !== "all") q = q.eq("triage_status", tab);
     const { data, error } = await q;
     if (error) setError(error.message);
@@ -72,9 +98,26 @@ export default function Feed() {
       ) : rows.length === 0 ? (
         <p className="empty">{tab === "new" ? "Nothing to triage. 🎉" : "Nothing here yet."}</p>
       ) : (
-        rows.map((p) => (
-          <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError} />
-        ))
+        groupByDay(rows).map(([day, items]) => {
+          const open = items.filter((p) => p.triage_status === "new").length;
+          return (
+            <section key={day}>
+              <h2 className="day">
+                {dayLabel(day)}
+                <span className="day-count">
+                  {items.length} job{items.length === 1 ? "" : "s"}
+                  {tab === "all" && open > 0 ? ` · ${open} to triage` : ""}
+                </span>
+              </h2>
+              {items.map((p) => (
+                <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError} />
+              ))}
+            </section>
+          );
+        })
+      )}
+      {rows !== null && rows.length > 0 && (
+        <p className="empty">Showing the last {HISTORY_DAYS} days.</p>
       )}
     </div>
   );

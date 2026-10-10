@@ -13,16 +13,21 @@ BUTTON = ("display:inline-block;padding:4px 12px;margin-right:8px;border-radius:
 
 
 def build_digest(shown: list[RawPosting], total: int, day: date,
-                 links: list[tuple[str, str] | None] | None = None) -> tuple[str, str, str]:
+                 links: list[tuple[str, str] | None] | None = None,
+                 app_url: str | None = None) -> tuple[str, str, str]:
     """Returns (subject, text, html). `shown` is already ordered and capped; `total` counts all that passed.
-    `links` holds an (apply_url, skip_url) pair per shown posting, or None when no links can be made."""
+    `links` holds an (apply_url, skip_url) pair per shown posting, or None when no links can be made.
+    `app_url` adds a link to the web app's timeline, which keeps every job for 30 days."""
     links = links or [None] * len(shown)
     hidden = total - len(shown)
     subject = f"jobsignal {day:%d %b}: {total} new job{'s' if total != 1 else ''}"
+    app_text = f"\n\nTimeline (last 30 days): {app_url}" if app_url else ""
+    app_html = (f'<p style="font-size:13px"><a href="{escape(app_url)}">Open the timeline</a> '
+                "for every job from the last 30 days.</p>") if app_url else ""
 
     if not shown:
-        text = "No new postings passed the filters today. That's a normal result."
-        html = f"<p>{escape(text)}</p>"
+        text = "No new postings passed the filters today. That's a normal result." + app_text
+        html = f"<p>{escape(text.split(chr(10))[0])}</p>{app_html}"
         return subject, text, html
 
     text_lines, html_items = [], []
@@ -42,12 +47,16 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
             f'<br><span style="color:#666;font-size:13px">{escape(" · ".join(meta))}</span>'
             f"{actions_html}</li>"
         )
-    more = f"\n…and {hidden} more." if hidden else ""
-    text = "\n\n".join(text_lines) + more
+    more = f"\n…and {hidden} more{' in the timeline' if app_url else ''}." if hidden else ""
+    text = "\n\n".join(text_lines) + more + app_text
+    more_html = ""
+    if hidden:
+        more_html = (f'<p>…and <a href="{escape(app_url)}">{hidden} more in the timeline</a>.</p>'
+                     if app_url else f"<p>…and {hidden} more.</p>")
     html = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.4">'
         f'<ol style="padding-left:20px">{"".join(html_items)}</ol>'
-        + (f"<p>…and {hidden} more.</p>" if hidden else "")
+        + more_html + app_html
         + "</div>"
     )
     return subject, text, html

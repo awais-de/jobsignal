@@ -90,3 +90,11 @@ input.edit {
 }
 .notice { background: var(--warn-bg); border-radius: 6px; padding: 8px 12px; margin: 10px 0; }
 .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+
+h2.day {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  font-size: 14px; font-weight: 600; margin: 18px 0 8px; padding: 8px 2px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.day-count { font-weight: 400; color: var(--muted); font-size: 13px; }

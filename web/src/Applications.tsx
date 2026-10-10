@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { CoverLetter, RESUME_COLUMNS, ResumeLink, ResumePicker, type Resume } from "./Resumes";
 import { sourceLabel, supabase } from "./supabase";
 
 // Applications table (spec 9.2). Status is never stored: it is the latest
@@ -19,6 +20,8 @@ type App = {
   created_at: string;
   notes: string | null;
   jd_snapshot: string | null;
+  resume_id: string | null;
+  cover_letter_file_id: string | null;
   job_postings: {
     title: string;
     company_name: string;
@@ -75,14 +78,21 @@ export default function Applications() {
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState("active");
   const [error, setError] = useState<string | null>(null);
+  const [resumes, setResumes] = useState<Resume[]>([]);
+  const resumeById = useMemo(() => new Map(resumes.map((r) => [r.id, r])), [resumes]);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from("applications")
-      .select("id,applied_at,created_at,notes,jd_snapshot,job_postings(title,company_name,city,source,apply_url,source_url)")
+      .select("id,applied_at,created_at,notes,jd_snapshot,resume_id,cover_letter_file_id," +
+              "job_postings(title,company_name,city,source,apply_url,source_url)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) return setError(error.message);
+    const rs = await supabase.from("resumes").select(RESUME_COLUMNS).is("deleted_at", null)
+      .order("created_at", { ascending: false });
+    if (rs.error) setError(rs.error.message);
+    else setResumes(rs.data as Resume[]);
     const list = data as unknown as App[];
     setApps(list);
     if (list.length) {
@@ -126,6 +136,12 @@ export default function Applications() {
     }
   }
 
+  async function patch(app: App, fields: Partial<Pick<App, "resume_id" | "cover_letter_file_id">>) {
+    const { error } = await supabase.from("applications").update(fields).eq("id", app.id);
+    if (error) return setError(error.message);
+    setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, ...fields } : a)));
+  }
+
   async function saveNotes(app: App, notes: string) {
     const v = notes.trim() || null;
     if (v === app.notes) return;
@@ -162,6 +178,7 @@ export default function Applications() {
               <th>Status</th>
               <th>Applied</th>
               <th>Last update</th>
+              <th>Resume</th>
               <th>Source</th>
               <th>Add event</th>
             </tr>
@@ -188,6 +205,10 @@ export default function Applications() {
                     </td>
                     <td className="muted">{a.applied_at ? fmt(a.applied_at) : "–"}</td>
                     <td className="muted">{last ? ago(last.occurred_at) : "–"}</td>
+                    <td>
+                      <ResumeLink r={a.resume_id ? resumeById.get(a.resume_id) : undefined} />
+                      {a.cover_letter_file_id && <span className="badge" title="Cover letter sent">+CL</span>}
+                    </td>
                     <td><span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span></td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {st?.event_type === "drafted" ? (
@@ -203,8 +224,21 @@ export default function Applications() {
                   </tr>
                   {isOpen && (
                     <tr className="detail">
-                      <td colSpan={7}>
-                        <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)} />
+                      <td colSpan={8}>
+                        <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}>
+                          <h3>Documents sent</h3>
+                          <div className="doc-row">
+                            <span className="muted">Resume</span>
+                            <ResumePicker resumes={resumes} value={a.resume_id} onError={setError}
+                                          onPick={(id) => patch(a, { resume_id: id })}
+                                          onCreated={(r) => setResumes((rs) => [r, ...rs])} />
+                          </div>
+                          <div className="doc-row">
+                            <span className="muted">Cover letter</span>
+                            <CoverLetter fileId={a.cover_letter_file_id}
+                                         onSave={(id) => patch(a, { cover_letter_file_id: id })} />
+                          </div>
+                        </Detail>
                       </td>
                     </tr>
                   )}
@@ -219,7 +253,12 @@ export default function Applications() {
   );
 }
 
-function Detail({ app, events, onNotes }: { app: App; events: Event[]; onNotes: (n: string) => void }) {
+function Detail({ app, events, onNotes, children }: {
+  app: App;
+  events: Event[];
+  onNotes: (n: string) => void;
+  children?: React.ReactNode;
+}) {
   const [showJd, setShowJd] = useState(false);
   return (
     <div className="detail-body">
@@ -237,6 +276,7 @@ function Detail({ app, events, onNotes }: { app: App; events: Event[]; onNotes: 
         </ol>
       </div>
       <div>
+        {children}
         <h3>Notes</h3>
         <textarea defaultValue={app.notes ?? ""} rows={3} placeholder="Contact, salary discussed, next step…"
                   onBlur={(e) => onNotes(e.target.value)} />

@@ -16,11 +16,13 @@ BUTTON = ("display:inline-block;padding:4px 12px;margin-right:8px;border-radius:
 
 def build_digest(shown: list[RawPosting], total: int, day: date,
                  links: list[tuple[str, str] | None] | None = None,
-                 app_url: str | None = None) -> tuple[str, str, str]:
+                 app_url: str | None = None,
+                 extras: list[dict] | None = None) -> tuple[str, str, str]:
     """Returns (subject, text, html). `shown` is already ordered and capped; `total` counts all that passed.
     `links` holds an (apply_url, skip_url) pair per shown posting, or None when no links can be made.
     `app_url` adds a link to the web app's timeline, which keeps every job for 30 days."""
     links = links or [None] * len(shown)
+    extras = extras or [{}] * len(shown)
     hidden = total - len(shown)
     subject = f"jobsignal {day:%d %b}: {total} new job{'s' if total != 1 else ''}"
     app_text = f"\n\nTimeline (last 30 days): {app_url}" if app_url else ""
@@ -33,11 +35,13 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
         return subject, text, html
 
     text_lines, html_items = [], []
-    for p, pair in zip(shown, links):
+    for p, pair, ex in zip(shown, links, extras):
         meta = _meta(p)
+        why = _why(ex)
         link = p.apply_url or p.source_url or ""
         actions_text = f"\n  Apply: {pair[0]}\n  Skip:  {pair[1]}" if pair else ""
-        text_lines.append(f"- {p.title} | {p.company_name}\n  {' · '.join(meta)}\n  {link}{actions_text}")
+        why_text = "".join(f"\n  {line}" for line in why)
+        text_lines.append(f"- {p.title} | {p.company_name}\n  {' · '.join(meta)}{why_text}\n  {link}{actions_text}")
         actions_html = (
             f'<br><a href="{escape(pair[0])}" style="{BUTTON}background:#1a7f37;color:#fff">Apply</a>'
             f'<a href="{escape(pair[1])}" style="{BUTTON}background:#eaeef2;color:#24292f">Skip</a>'
@@ -47,7 +51,8 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
             f'<li style="margin-bottom:16px"><a href="{escape(link)}" style="font-weight:600">{escape(p.title)}</a>'
             f"<br>{escape(p.company_name)}"
             f'<br><span style="color:#666;font-size:13px">{escape(" · ".join(meta))}</span>'
-            f"{actions_html}</li>"
+            + "".join(f'<br><span style="font-size:13px">{escape(line)}</span>' for line in why)
+            + f"{actions_html}</li>"
         )
     more = f"\n…and {hidden} more{' in the timeline' if app_url else ''}." if hidden else ""
     text = "\n\n".join(text_lines) + more + app_text
@@ -62,6 +67,34 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
         + "</div>"
     )
     return subject, text, html
+
+
+def _why(ex: dict) -> list[str]:
+    """'Why it ranked' lines (spec 7.10): skills, then language and experience requirements."""
+    lines: list[str] = []
+    details = ex.get("rank_details") or {}
+    if details:
+        matched, missing = details.get("matched") or [], details.get("missing") or []
+        total = len(matched) + len(missing)
+        if total:
+            line = f"✓ {len(matched)}/{total} must-haves"
+            if matched:
+                line += f": {', '.join(matched[:6])}"
+            lines.append(line)
+        if missing:
+            lines.append(f"✗ missing: {', '.join(missing[:6])}")
+    reqs = []
+    if ex.get("german_level") and ex["german_level"] != "none":
+        reqs.append(f"German {ex['german_level']}")
+    elif ex.get("german_level") == "none":
+        reqs.append("no German needed")
+    if ex.get("required_years") is not None:
+        reqs.append(f"{ex['required_years']:g}+ yrs")
+    if reqs:
+        lines.append(" · ".join(reqs))
+    if ex.get("extraction_status") in ("failed", "pending"):
+        lines.append("(not analysed yet)")
+    return lines
 
 
 def _meta(p: RawPosting) -> list[str]:

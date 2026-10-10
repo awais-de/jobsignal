@@ -58,6 +58,11 @@ def load_sources(path: Path = SOURCES_PATH) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def load_config(name: str) -> dict[str, Any]:
+    """A public config file from pipeline/config (llm.yaml, scoring.yaml, ...)."""
+    return yaml.safe_load((CONFIG_DIR / name).read_text(encoding="utf-8")) or {}
+
+
 def _line(exc: yaml.YAMLError) -> str:
     mark = getattr(exc, "problem_mark", None)
     return str(mark.line + 1) if mark else "?"

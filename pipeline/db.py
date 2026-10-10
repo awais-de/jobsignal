@@ -102,6 +102,33 @@ class Database:
         for chunk in _chunks(ids, 500):
             self._req("POST", "/rpc/record_reposts", json={"ids": chunk})
 
+    # -- extraction / LLM -------------------------------------------------------
+    def pending_extractions(self, since: datetime, limit: int) -> list[dict[str, Any]]:
+        """Passed postings from earlier runs whose extraction hasn't succeeded yet."""
+        return self._req("GET", "/job_postings", params={
+            "select": "id,title,description,contract_type,remote_policy,salary_text",
+            "filter_status": "eq.passed", "extraction_status": "in.(pending,failed)",
+            "description": "not.is.null", "deleted_at": "is.null",
+            "first_seen_at": f"gte.{since.isoformat()}", "order": "first_seen_at.desc", "limit": limit,
+        })
+
+    def update_posting(self, posting_id: str, fields: dict[str, Any]) -> None:
+        self._req("PATCH", "/job_postings", params={"id": f"eq.{posting_id}"}, json=fields)
+
+    def cache_get(self, key: str) -> dict[str, Any] | None:
+        rows = self._req("GET", "/llm_cache", params={"select": "result", "cache_key": f"eq.{key}"})
+        return rows[0]["result"] if rows else None
+
+    def cache_put(self, entries: dict[str, dict[str, Any]], stage: str) -> None:
+        rows = [{"cache_key": k, "stage": stage, "result": v} for k, v in entries.items()]
+        for chunk in _chunks(rows, BATCH):
+            self._req("POST", "/llm_cache", json=chunk,
+                      headers={"Prefer": "resolution=ignore-duplicates,return=minimal"})
+
+    def record_llm_usage(self, rows: list[dict[str, Any]]) -> None:
+        for chunk in _chunks(rows, BATCH):
+            self._req("POST", "/llm_usage", json=chunk)
+
     def mark_surfaced(self, ids: list[str], day: date) -> None:
         for chunk in _chunks(ids, BATCH):
             self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})"},
@@ -131,6 +158,7 @@ def _row(c: Candidate) -> dict[str, Any]:
         "source_data": r.source_data or None,
         "filter_status": "passed" if c.passed else "rejected",
         "filter_reasons": c.filter_reasons or None,
+        **c.enrichment,
     }
 
 

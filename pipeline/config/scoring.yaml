@@ -1,0 +1,7 @@
+# Ranking weights (spec 7.9). All STARTING VALUEs: tune once there are labels.
+w_fit: 0.70                     # weight of must-have skill overlap (0-100)
+preferred_skill_bonus: 2        # per preferred skill (profile.preferences.skills_bonus) in the posting
+preferred_skill_bonus_cap: 10
+remote_bonus: 5                 # remote or hybrid, when profile.preferences.remote_bonus is on
+preference_bonus_cap: 15
+# Phase 7 adds: w_ghost (0.20), effort_bonus (low 5 / medium 2 / high 0)

@@ -1,0 +1,20 @@
+# LLM providers and routing (spec 8). Public: no keys here, only env var names.
+
+providers:
+  groq:
+    enabled: true
+    api_key_env: GROQ_API_KEY
+  gemini:
+    # Paid tier only (EEA terms for unpaid use). Enable after setting up billing in AI Studio.
+    enabled: false
+    api_key_env: GEMINI_API_KEY
+
+stages:
+  jd_extraction:
+    prompt_version: 'jd-v1'
+    max_calls_per_run: 80          # hard cap per run, across providers
+    max_input_chars: 8000          # description is trimmed to this before sending
+    providers:                     # tried in order; falls through on rate limit / errors
+      - { provider: groq,   model: 'openai/gpt-oss-120b' }
+      - { provider: groq,   model: 'openai/gpt-oss-20b' }
+      - { provider: gemini, model: 'gemini-3.5-flash-lite' }

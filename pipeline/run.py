@@ -17,14 +17,17 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from pipeline.actions import action_links
-from pipeline.config import ConfigError, load_profile, load_sources
+from pipeline.config import ConfigError, load_config, load_profile, load_sources
+from pipeline.enrich import Enricher
+from pipeline.extract.jd import STAGE
+from pipeline.llm.router import build_router
 from pipeline.db import Database
 from pipeline.dedupe import apply_dedupe, build_candidates
 from pipeline.deliver import send_email
@@ -35,13 +38,14 @@ from pipeline.sources.ba import BundesagenturSource
 
 log = logging.getLogger("jobsignal")
 
-UNRANKED_MAX_ITEMS = 30  # Phase 1 has no ranking; Phase 3 switches to feed.max_items
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pipeline.run")
     parser.add_argument("--dry-run", action="store_true", help="write nothing, send nothing")
     parser.add_argument("--preview", type=Path, help="with --dry-run: write the digest HTML to this file (local use only)")
+    parser.add_argument("--backlog-only", action="store_true",
+                        help="only extract and rank stored postings that are still pending; no fetch, no email")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     # httpx logs full request URLs at INFO, which include the private search terms.
@@ -54,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         log.error("%s", exc)
         return 1
+
+    if args.backlog_only:
+        return backlog_only(profile, write=not args.dry_run)
 
     db: Database | None = None
     run_id: str | None = None
@@ -144,12 +151,34 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                 c.filter_reasons.append("agency")
         passed = [c for c in passed if c.passed]
 
-    # 5. write
+    # 5. extraction, dealbreakers, ranking (spec 7.5, 7.9). New postings first, then the backlog.
+    enricher = _enricher(profile, db)
+    for c in passed:
+        cols, reason = enricher.run(c.raw.title, c.raw.description, source_contract=c.raw.contract_type,
+                                    remote_policy=c.raw.remote_policy, salary_text=c.raw.salary_text)
+        c.enrichment = cols
+        c.raw.remote_policy = cols.get("remote_policy", c.raw.remote_policy)
+        c.raw.salary_text = cols.get("salary_text", c.raw.salary_text)
+        if reason:
+            c.filter_reasons.append(reason)
+    dealbroken = Counter(c.filter_reasons[0] for c in passed if not c.passed)
+    passed = [c for c in passed if c.passed]
+    backlog = _process_backlog(enricher, db, write=bool(run_id), now=now) if db else {}
+
+    # 6. write
     new = [c for c in candidates if c.is_new]
     known_ids = [c.existing_id for c in candidates if c.existing_id]
     repost_ids = [c.repost_of for c in candidates if c.repost_of]
-    surface: list[Candidate] = sorted(passed, key=lambda c: (c.raw.posted_date or now.date(), c.raw.title.lower()),
-                                      reverse=True)[:UNRANKED_MAX_ITEMS]
+    # Ranked first (highest score), then unranked newest-first (spec 7.9).
+    surface: list[Candidate] = sorted(
+        passed,
+        key=lambda c: (c.enrichment.get("rank_score") is not None, c.enrichment.get("rank_score") or 0,
+                       c.raw.posted_date or now.date()),
+        reverse=True,
+    )
+    min_score = float(profile["feed"].get("min_rank_score", 0))
+    surface = [c for c in surface if (c.enrichment.get("rank_score") or 0) >= min_score
+               or c.enrichment.get("rank_score") is None][: int(profile["feed"].get("max_items", 10))]
     surface_ids: list[str] = []
     if run_id and db:
         ids = db.insert_postings(new)
@@ -161,18 +190,26 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         for r in source_results:
             db.record_source_run(run_id, r["source"], r["status"], r["fetched"],
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
+        _flush_llm(enricher, db)
 
-    # 6. digest
+    # 7. digest
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
-    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links, app_url)
+    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links, app_url,
+                                       extras=[c.enrichment for c in surface])
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"
         html = f"<p><em>{note}</em></p>{html}"
 
     reasons = Counter(r for c in candidates if c.is_new for r in c.filter_reasons[:1])
+    extraction = Counter(c.enrichment.get("extraction_status", "none") for c in candidates
+                         if c.is_new and c.enrichment)
     stats.update({
+        "extraction": dict(extraction),
+        "dealbreakers": dict(dealbroken),
+        "backlog": backlog,
+        "llm_calls": enricher.router.calls,
         "first_run": first_run,
         "fetched": len(raws),
         "unique": len(candidates),
@@ -187,6 +224,57 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         "_surface_ids": surface_ids,
     })
     return stats, (subject, text, html)
+
+
+BACKLOG_DAYS = 7      # older postings that never got extracted stay unranked
+BACKLOG_LIMIT = 60
+
+
+def _enricher(profile: dict[str, Any], db: Database | None) -> Enricher:
+    llm_cfg = load_config("llm.yaml")
+    router = build_router(llm_cfg, STAGE, cache_get=db.cache_get if db else None)
+    return Enricher(profile, llm_cfg, load_config("scoring.yaml"), router)
+
+
+def _process_backlog(enricher: Enricher, db: Database, write: bool, now: datetime) -> dict[str, int]:
+    """Extract and rank passed postings from earlier runs that are still pending or failed."""
+    if enricher.router.exhausted:
+        return {}
+    rows = db.pending_extractions(now - timedelta(days=BACKLOG_DAYS), BACKLOG_LIMIT)
+    counts: Counter[str] = Counter()
+    for r in rows:
+        if enricher.router.exhausted:
+            break
+        cols, reason = enricher.run(r["title"], r["description"], source_contract=r["contract_type"],
+                                    remote_policy=r["remote_policy"], salary_text=r["salary_text"])
+        if reason:
+            cols.update(filter_status="rejected", filter_reasons=[reason])
+        counts["rejected" if reason else cols["extraction_status"]] += 1
+        if write:
+            db.update_posting(r["id"], cols)
+    return dict(counts)
+
+
+def backlog_only(profile: dict[str, Any], write: bool) -> int:
+    db = Database.from_env()
+    if db is None:
+        log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set.")
+        return 1
+    enricher = _enricher(profile, db)
+    counts = _process_backlog(enricher, db, write=write, now=datetime.now(timezone.utc))
+    if write:
+        _flush_llm(enricher, db)
+    errors = Counter(u["error"] for u in enricher.router.usage if u["error"])
+    log.info("backlog: %s, llm_calls=%d, llm_errors=%s", counts, enricher.router.calls, dict(errors))
+    return 0
+
+
+def _flush_llm(enricher: Enricher, db: Database) -> None:
+    router = enricher.router
+    if router.new_cache:
+        db.cache_put(router.new_cache, STAGE)
+    if router.usage:
+        db.record_llm_usage(router.usage)
 
 
 def _ping(suffix: str) -> None:

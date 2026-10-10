@@ -1,0 +1,58 @@
+"""Load the owner's profile.
+
+The real profile is personal and never committed (spec 13.1). It comes from the
+PROFILE_YAML environment variable (a GitHub Actions secret) or, locally, from
+pipeline/config/profile.yaml. There is deliberately no fallback to
+profile.example.yaml: a run on made-up values would silently send a wrong digest.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+CONFIG_DIR = Path(__file__).parent / "config"
+PROFILE_PATH = CONFIG_DIR / "profile.yaml"
+PROFILE_ENV = "PROFILE_YAML"
+
+REQUIRED_KEYS = ("titles", "location", "contract_types", "dealbreakers", "feed", "freshness_hours")
+
+
+class ConfigError(Exception):
+    pass
+
+
+def load_profile(env: dict[str, str] | None = None, path: Path = PROFILE_PATH) -> dict[str, Any]:
+    env = os.environ if env is None else env
+    raw = env.get(PROFILE_ENV)
+    if raw:
+        source = f"${PROFILE_ENV}"
+    elif path.is_file():
+        raw = path.read_text(encoding="utf-8")
+        source = str(path.name)
+    else:
+        raise ConfigError(
+            f"No profile found. Set ${PROFILE_ENV} or create {path.name} "
+            "from profile.example.yaml."
+        )
+
+    try:
+        profile = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        # Don't include the YAML text: logs of a public repo are public.
+        raise ConfigError(f"Profile from {source} is not valid YAML (line {_line(exc)}).") from None
+
+    if not isinstance(profile, dict):
+        raise ConfigError(f"Profile from {source} must be a mapping.")
+    missing = [k for k in REQUIRED_KEYS if k not in profile]
+    if missing:
+        raise ConfigError(f"Profile from {source} is missing keys: {', '.join(missing)}")
+    return profile
+
+
+def _line(exc: yaml.YAMLError) -> str:
+    mark = getattr(exc, "problem_mark", None)
+    return str(mark.line + 1) if mark else "?"

@@ -1,0 +1,9 @@
+[project]
+name = "jobsignal"
+version = "0.0.1"
+description = "Daily ranked job feed and self-updating application tracker"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

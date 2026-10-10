@@ -1,0 +1,32 @@
+# Example profile with made-up values. Copy to profile.yaml (gitignored) and edit.
+# In GitHub Actions the real file's contents go in the PROFILE_YAML secret.
+
+titles:
+  allow:
+    - 'data engineer'
+    - 'analytics engineer'
+    - 'data scientist'
+  block:
+    - '\bprincipal\b'
+    - '\bintern(ship)?\b'          # word boundaries: must not match 'international'
+    - 'werkstudent|working student'
+
+location:
+  country: 'DE'
+  allow_remote: true
+
+contract_types: ['full_time']
+
+dealbreakers:
+  max_required_years: 3            # compared against the lower bound of a range
+  max_german_level: 'B2'
+
+preferences:
+  skills_bonus: ['python', 'sql']
+  remote_bonus: true
+
+feed:
+  max_items: 10
+  min_rank_score: 0
+
+freshness_hours: 48

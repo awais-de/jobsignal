@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { POSTING_COLUMNS, SKIP_REASONS, supabase, type Posting } from "./supabase";
+import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 type Tab = "new" | "applied" | "skipped" | "all";
 const TABS: { key: Tab; label: string }[] = [
@@ -109,9 +109,11 @@ export default function Feed() {
                   {tab === "all" && open > 0 ? ` · ${open} to triage` : ""}
                 </span>
               </h2>
-              {items.map((p) => (
-                <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError} />
-              ))}
+              <div className="grid">
+                {items.map((p) => (
+                  <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError} />
+                ))}
+              </div>
             </section>
           );
         })
@@ -175,16 +177,16 @@ function Card({ p, tab, onChange, onGone, onError }: {
 
   const nLoc = p.location_raw ? p.location_raw.split("; ").length : 0;
   const meta = [
-    nLoc > 1 ? `+${nLoc - 1} locations` : null,
+    nLoc > 1 ? `+${nLoc - 1}` : null,
     p.remote_policy ? REMOTE[p.remote_policy] : null,
-    p.posted_date ? `posted ${fmtDate(p.posted_date)}` : null,
+    p.posted_date ? fmtDate(p.posted_date) : null,
   ].filter(Boolean);
 
   return (
     <div className={`card${p.triage_status !== "new" ? " done" : ""}`}>
-      <div className="title">
-        <Editable value={p.title} onSave={(v) => save("title", v)} />
-        {url && <> <a href={url} target="_blank" rel="noreferrer" aria-label="Open posting">↗</a></>}
+      <div className="tags">
+        <span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span>
+        {p.poster_type === "agency" && <span className="badge">agency</span>}
         {p.triage_status !== "new" && (
           <span className="badge">
             {p.triage_status}{p.skip_reason ? `: ${label(p.skip_reason)}` : ""}
@@ -192,14 +194,19 @@ function Card({ p, tab, onChange, onGone, onError }: {
         )}
         {p.manually_edited && <span className="badge">edited</span>}
       </div>
-      <div className="meta">
+      <div className="title">
+        <Editable value={p.title} onSave={(v) => save("title", v)} />
+        {url && <> <a href={url} target="_blank" rel="noreferrer" aria-label="Open posting">↗</a></>}
+      </div>
+      <div className="company">
         <Editable value={p.company_name} onSave={(v) => save("company_name", v)} />
-        {" · "}
+      </div>
+      <div className="meta">
         <Editable value={p.city ?? ""} placeholder="city" onSave={(v) => save("city", v)} />
         {meta.length > 0 && ` · ${meta.join(" · ")}`}
-        {" · "}
-        <Editable value={p.salary_text ?? ""} placeholder="salary" onSave={(v) => save("salary_text", v)} />
-        {p.poster_type === "agency" && <span className="badge">agency</span>}
+      </div>
+      <div className="meta">
+        <Editable value={p.salary_text ?? ""} placeholder="no salary given" onSave={(v) => save("salary_text", v)} />
       </div>
       <div className="actions">
         {p.triage_status === "new" && (

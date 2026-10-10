@@ -8,6 +8,8 @@ from html import escape
 from pipeline.models import RawPosting
 
 REMOTE_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site"}
+# Display names for job_postings.source; keep in sync with web/src/supabase.ts SOURCE_LABELS.
+SOURCE_LABELS = {"ba_api": "Arbeitsagentur", "manual": "Added by hand"}
 BUTTON = ("display:inline-block;padding:4px 12px;margin-right:8px;border-radius:4px;"
           "text-decoration:none;font-size:13px;font-weight:600;")
 
@@ -76,4 +78,5 @@ def _meta(p: RawPosting) -> list[str]:
         meta.append(p.salary_text)
     if p.poster_type == "agency":
         meta.append("agency")
+    meta.append(f"via {SOURCE_LABELS.get(p.source, p.source)}")
     return meta

@@ -19,8 +19,19 @@ export const SKIP_REASONS: { key: string; label: string }[] = [
   { key: "other", label: "Other" },
 ];
 
+// Display names for job_postings.source. Add an entry when a new source is added.
+export const SOURCE_LABELS: Record<string, string> = {
+  ba_api: "Arbeitsagentur",
+  manual: "Added by hand",
+};
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
 export type Posting = {
   id: string;
+  source: string;
   title: string;
   company_name: string;
   city: string | null;
@@ -39,5 +50,5 @@ export type Posting = {
 };
 
 export const POSTING_COLUMNS =
-  "id,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
+  "id,source,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
   "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited";

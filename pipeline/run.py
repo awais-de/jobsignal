@@ -23,6 +23,7 @@ from typing import Any
 
 import httpx
 
+from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_profile, load_sources
 from pipeline.db import Database
 from pipeline.dedupe import apply_dedupe, build_candidates
@@ -162,7 +163,9 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
 
     # 6. digest
-    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date())
+    secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
+    links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
+    subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links)
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"

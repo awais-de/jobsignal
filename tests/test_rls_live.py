@@ -13,8 +13,16 @@ KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY")
 
 pytestmark = pytest.mark.skipif(not (URL and KEY), reason="needs SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY")
 
-TABLES = ["job_postings", "pipeline_runs", "source_runs"]
-RPCS = ["touch_postings", "record_reposts"]
+TABLES = ["job_postings", "pipeline_runs", "source_runs", "applications", "application_events",
+          "used_action_tokens", "app_owner"]
+# Real arguments, so a 404 can't come from a signature mismatch instead of missing permission.
+ZERO = "00000000-0000-0000-0000-000000000000"
+RPCS = {
+    "touch_postings": {"ids": [ZERO]},
+    "record_reposts": {"ids": [ZERO]},
+    "triage_posting": {"p_posting_id": ZERO, "p_action": "skip", "p_reason": "other"},
+    "is_owner": {},
+}
 
 
 @pytest.fixture(scope="module")
@@ -45,5 +53,5 @@ def test_tables_unwritable(anon, table):
 
 @pytest.mark.parametrize("fn", RPCS)
 def test_rpcs_not_callable(anon, fn):
-    resp = anon.post(f"/rpc/{fn}", json={"ids": []})
-    assert resp.status_code in (401, 403, 404)
+    resp = anon.post(f"/rpc/{fn}", json=RPCS[fn])
+    assert resp.status_code in (401, 403), f"{fn}: HTTP {resp.status_code}"

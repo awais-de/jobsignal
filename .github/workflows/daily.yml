@@ -36,3 +36,5 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+          ACTION_LINK_SECRET: ${{ secrets.ACTION_LINK_SECRET }}
+          APP_URL: ${{ vars.APP_URL }}   # web app address; digest has no Apply/Skip links until set

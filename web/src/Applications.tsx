@@ -25,6 +25,7 @@ const EVENT_COLUMNS = "id,application_id,event_type,occurred_at,source,notes,sch
 
 type App = {
   id: string;
+  job_posting_id: string;
   applied_at: string | null;
   created_at: string;
   notes: string | null;
@@ -95,7 +96,7 @@ export default function Applications() {
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from("applications")
-      .select("id,applied_at,created_at,notes,jd_snapshot,resume_id,cover_letter_file_id," +
+      .select("id,job_posting_id,applied_at,created_at,notes,jd_snapshot,resume_id,cover_letter_file_id," +
               "job_postings(title,company_name,city,source,apply_url,source_url)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -142,6 +143,7 @@ export default function Applications() {
     }
     const { data, error } = await supabase.from("application_events")
       .insert({ application_id: app.id, event_type: type, source: "user", notes,
+                ...(extra.occurred_at ? { occurred_at: extra.occurred_at } : {}),
                 scheduled_for: extra.scheduled_for ?? null, interview_kind: extra.interview_kind ?? null })
       .select(EVENT_COLUMNS).single();
     if (error) return setError(error.message);
@@ -151,6 +153,44 @@ export default function Applications() {
       await supabase.from("applications").update({ applied_at: now }).eq("id", app.id);
       setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, applied_at: now } : a)));
     }
+  }
+
+  // -- corrections and deletion ------------------------------------------------------
+  async function savePosting(app: App, fields: Partial<Pick<App["job_postings"], "company_name" | "title" | "city">>) {
+    const { error } = await supabase.from("job_postings").update(fields).eq("id", app.job_posting_id);
+    if (error) return setError(error.message);
+    setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, job_postings: { ...a.job_postings, ...fields } } : a)));
+  }
+
+  /** New applied date: the application's date and its (first) 'Applied' event move together. */
+  async function saveAppliedDate(app: App, day: string) {
+    if (!day) return;
+    const iso = new Date(day + "T12:00:00").toISOString();
+    const { error } = await supabase.from("applications").update({ applied_at: iso }).eq("id", app.id);
+    if (error) return setError(error.message);
+    const applied = (byApp.get(app.id) ?? []).filter((e) => e.event_type === "applied")
+      .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))[0];
+    if (applied) await editEvent(applied, { occurred_at: iso });
+    else await addEvent(app, "applied", { occurred_at: iso, event_type: "applied" } as Partial<Event>);
+    setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, applied_at: iso } : a)));
+  }
+
+  async function editEvent(ev: Event, fields: Partial<Pick<Event, "occurred_at">>) {
+    const { error } = await supabase.from("application_events").update(fields).eq("id", ev.id);
+    if (error) return setError(error.message);
+    setEvents((es) => es.map((e) => (e.id === ev.id ? { ...e, ...fields } : e))
+      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)));
+  }
+
+  async function deleteApp(app: App) {
+    const label = `${app.job_postings.company_name} – ${app.job_postings.title}`;
+    if (!window.confirm(`Delete the application "${label}"? It disappears from the app and the job won't come back.`)) return;
+    const now = new Date().toISOString();
+    const a = await supabase.from("applications").update({ deleted_at: now }).eq("id", app.id);
+    if (a.error) return setError(a.error.message);
+    await supabase.from("job_postings").update({ deleted_at: now }).eq("id", app.job_posting_id);
+    setApps((as) => as && as.filter((x) => x.id !== app.id));
+    setOpen(null);
   }
 
   async function copyPrep(app: App) {
@@ -270,7 +310,9 @@ export default function Applications() {
                     <tr className="detail">
                       <td colSpan={11}>
                         <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}
-                                onJd={(jd) => patch(a, { jd_snapshot: jd })}>
+                                onJd={(jd) => patch(a, { jd_snapshot: jd })} onEventDate={(e, iso) => editEvent(e, { occurred_at: iso })}
+                                onPosting={(f) => savePosting(a, f)} onApplied={(d) => saveAppliedDate(a, d)}
+                                onDelete={() => deleteApp(a)}>
                           {scheduling?.appId === a.id && (
                             <InterviewForm type={scheduling.type} onCancel={() => setScheduling(null)}
                               onSave={(f) => { setScheduling(null); addEvent(a, scheduling.type, { ...f, event_type: scheduling.type }); }} />
@@ -307,11 +349,15 @@ export default function Applications() {
   );
 }
 
-function Detail({ app, events, onNotes, onJd, children }: {
+function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied, onDelete, children }: {
   app: App;
   events: Event[];
   onNotes: (n: string) => void;
   onJd: (jd: string | null) => void;
+  onEventDate: (e: Event, iso: string) => void;
+  onPosting: (f: Partial<Pick<App["job_postings"], "company_name" | "title" | "city">>) => void;
+  onApplied: (day: string) => void;
+  onDelete: () => void;
   children?: React.ReactNode;
 }) {
   return (
@@ -321,7 +367,7 @@ function Detail({ app, events, onNotes, onJd, children }: {
         <ol className="timeline">
           {events.map((e) => (
             <li key={e.id}>
-              <span className="muted">{fmt(e.occurred_at, true)}</span>{" "}
+              <EventDate value={e.occurred_at} onSave={(iso) => onEventDate(e, iso)} />{" "}
               <strong>{EVENT_LABELS[e.event_type] ?? e.event_type}</strong>
               {(e.scheduled_for || e.interview_kind) && (
                 <span className="muted">
@@ -339,11 +385,25 @@ function Detail({ app, events, onNotes, onJd, children }: {
         </ol>
       </div>
       <div>
+        <h3>Details</h3>
+        <div className="details-grid">
+          <label>Company<input defaultValue={app.job_postings.company_name}
+            onBlur={(e) => e.target.value.trim() && e.target.value !== app.job_postings.company_name && onPosting({ company_name: e.target.value.trim() })} /></label>
+          <label>Role<input defaultValue={app.job_postings.title}
+            onBlur={(e) => e.target.value.trim() && e.target.value !== app.job_postings.title && onPosting({ title: e.target.value.trim() })} /></label>
+          <label>Location<input defaultValue={app.job_postings.city ?? ""} placeholder="City"
+            onBlur={(e) => e.target.value !== (app.job_postings.city ?? "") && onPosting({ city: e.target.value.trim() || null as unknown as string })} /></label>
+          <label>Applied on<input type="date" defaultValue={app.applied_at ? toDay(app.applied_at) : ""} max={toDay(new Date().toISOString())}
+            onChange={(e) => onApplied(e.target.value)} /></label>
+        </div>
         {children}
         <h3>Notes</h3>
         <textarea defaultValue={app.notes ?? ""} rows={3} placeholder="Contact, salary discussed, next step…"
                   onBlur={(e) => onNotes(e.target.value)} />
         <JobDescription jd={app.jd_snapshot} onSave={onJd} />
+        <div className="danger-zone">
+          <button className="link danger" onClick={onDelete}>Delete application</button>
+        </div>
       </div>
     </div>
   );
@@ -420,5 +480,26 @@ function InterviewForm({ type, onSave, onCancel }: {
         <button className="link" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+/** Local YYYY-MM-DD for a date input. */
+function toDay(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** An event's date: click to correct it (e.g. an import recorded the wrong day). */
+function EventDate({ value, onSave }: { value: string; onSave: (iso: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (!editing) {
+    return <button className="link event-date" title="Click to correct the date" onClick={() => setEditing(true)}>{fmt(value, true)}</button>;
+  }
+  const d = new Date(value);
+  const local = `${toDay(value)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return (
+    <input type="datetime-local" autoFocus defaultValue={local}
+           onBlur={(e) => { setEditing(false); if (e.target.value && e.target.value !== local) onSave(new Date(e.target.value).toISOString()); }}
+           onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
   );
 }

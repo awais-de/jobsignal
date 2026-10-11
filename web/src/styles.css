@@ -323,3 +323,11 @@ button.x { border: none; background: none; color: var(--muted); padding: 0 4px; 
 .profile .alias-input { width: 110px; font-size: 12px; padding: 2px 6px; }
 .watch-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
 .watch-row .grow { flex: 1 1 260px; }
+
+/* Application details and deletion */
+.details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.details-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.details-grid input { font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+button.event-date { padding: 0; color: var(--muted); font-size: inherit; text-decoration: underline dotted; }
+.danger-zone { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); text-align: right; }

@@ -34,14 +34,24 @@ Deno.serve(async (req) => {
   if (!(await isOwner(req))) return json({ error: "forbidden" }, 403);
   if (!TOKEN) return json({ error: "not_configured" }, 503);
 
-  const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/daily.yml/dispatches`, {
+  const headers = {
+    Authorization: `Bearer ${TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "jobsignal",
+  };
+  const workflow = `https://api.github.com/repos/${REPO}/actions/workflows/daily.yml`;
+
+  // { check: true } verifies the token without starting a run.
+  const body = await req.json().catch(() => ({}));
+  if (body?.check) {
+    const res = await fetch(workflow, { headers });
+    return res.ok ? json({ ok: true, check: true }) : json({ error: "github_error", status: res.status }, 502);
+  }
+
+  const res = await fetch(`${workflow}/dispatches`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "jobsignal",
-    },
+    headers,
     body: JSON.stringify({ ref: "main", inputs: { dry_run: "false" } }),
   });
   // 204 = queued. Anything else: report the status only, never the token.

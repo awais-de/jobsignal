@@ -8,7 +8,9 @@ profile.example.yaml: a run on made-up values would silently send a wrong digest
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -46,12 +48,7 @@ def load_profile(env: dict[str, str] | None = None, path: Path = PROFILE_PATH) -
         # Don't include the YAML text: logs of a public repo are public.
         raise ConfigError(f"Profile from {source} is not valid YAML (line {_line(exc)}).") from None
 
-    if not isinstance(profile, dict):
-        raise ConfigError(f"Profile from {source} must be a mapping.")
-    missing = [k for k in REQUIRED_KEYS if k not in profile]
-    if missing:
-        raise ConfigError(f"Profile from {source} is missing keys: {', '.join(missing)}")
-    return profile
+    return validate_profile(profile, source)
 
 
 def load_sources(path: Path = SOURCES_PATH) -> dict[str, Any]:
@@ -66,3 +63,26 @@ def load_config(name: str) -> dict[str, Any]:
 def _line(exc: yaml.YAMLError) -> str:
     mark = getattr(exc, "problem_mark", None)
     return str(mark.line + 1) if mark else "?"
+
+
+log = logging.getLogger("jobsignal")
+
+
+def validate_profile(profile: Any, origin: str) -> dict[str, Any]:
+    """Required keys present; title patterns compile (invalid ones are dropped with a warning,
+    so one bad pattern typed in the app can't break the daily run)."""
+    if not isinstance(profile, dict):
+        raise ConfigError(f"Profile from {origin} must be a mapping.")
+    missing = [k for k in REQUIRED_KEYS if k not in profile]
+    if missing:
+        raise ConfigError(f"Profile from {origin} is missing keys: {', '.join(missing)}")
+    for key in ("allow", "block"):
+        good = []
+        for pattern in profile["titles"].get(key) or []:
+            try:
+                re.compile(pattern)
+                good.append(pattern)
+            except re.error:
+                log.warning("profile: an invalid title %s pattern was skipped", key)
+        profile["titles"][key] = good
+    return profile

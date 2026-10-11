@@ -24,8 +24,9 @@ from typing import Any
 import httpx
 
 from pipeline.actions import action_links
-from pipeline.config import ConfigError, load_config, load_profile, load_sources
+from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
 from pipeline.enrich import Enricher
+from pipeline.rank import score
 from pipeline.extract.jd import STAGE
 from pipeline.llm.router import build_router
 from pipeline.db import Database
@@ -59,8 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     try:
-        profile = load_profile()
         sources_cfg = load_sources()
+        profile = _load_profile(Database.from_env())
     except ConfigError as exc:
         log.error("%s", exc)
         return 1
@@ -253,6 +254,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         _flush_router(page_router, db, PAGE_STAGE)
         if disc_cfg.get("enabled"):
             stats["discovery"] = _discover(db, candidates, disc_cfg, now)
+        stats["reranked"] = _rerank(db, enricher, profile, now)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
@@ -336,6 +338,39 @@ def backlog_only(profile: dict[str, Any], write: bool) -> int:
     errors = Counter(u["error"] for u in enricher.router.usage if u["error"])
     log.info("backlog: %s, llm_calls=%d, llm_errors=%s", counts, enricher.router.calls, dict(errors))
     return 0
+
+
+def _load_profile(db: Database | None) -> dict[str, Any]:
+    """The profile edited in the app (database) wins; PROFILE_YAML / profile.yaml are the fallback."""
+    if db:
+        try:
+            row = db.owner_profile()
+        except Exception:  # noqa: BLE001 - fall back rather than fail the run
+            row = None
+            log.warning("profile: database unavailable, using the fallback")
+        if row:
+            profile = validate_profile(row[0], "the app")
+            profile["_version"] = row[1]
+            log.info("profile: from the app (version %d)", row[1])
+            return profile
+    profile = load_profile()
+    profile["_version"] = 0
+    return profile
+
+
+def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: datetime) -> int:
+    """After a profile change, re-rank stored jobs of the last 30 days from their stored skills
+    (no LLM calls: extraction results are already in the row)."""
+    version = profile.get("_version")
+    changed = 0
+    for r in db.postings_to_rerank(now - timedelta(days=30)):
+        if (r.get("rank_details") or {}).get("ranked_with") == version:
+            continue
+        fit, rank, details = score(r, r.get("remote_policy"), enricher.index, profile, enricher.weights)
+        details["ranked_with"] = version
+        db.update_posting(r["id"], {"fit_score": fit, "rank_score": rank, "rank_details": details})
+        changed += 1
+    return changed
 
 
 def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], now: datetime) -> dict[str, int]:

@@ -174,6 +174,17 @@ class Database:
         for chunk in _chunks(rows, BATCH):
             self._req("POST", "/llm_usage", json=chunk)
 
+    # -- owner profile (editable in the app) ------------------------------------------------
+    def owner_profile(self) -> tuple[dict[str, Any], int] | None:
+        rows = self._req("GET", "/owner_profile", params={"select": "profile,version", "id": "eq.1"})
+        return (rows[0]["profile"], rows[0]["version"]) if rows else None
+
+    def postings_to_rerank(self, since: datetime) -> list[dict[str, Any]]:
+        return self._req("GET", "/job_postings", params={
+            "select": "id,must_have_skills,nice_to_have_skills,remote_policy,rank_details",
+            "filter_status": "eq.passed", "extraction_status": "eq.done", "deleted_at": "is.null",
+            "first_seen_at": f"gte.{since.isoformat()}", "limit": 2000})
+
     # -- companies (spec 6.2, 7.2) -------------------------------------------------------
     def company_count(self) -> int:
         resp = self.client.get("/companies", params={"select": "id", "limit": 1},

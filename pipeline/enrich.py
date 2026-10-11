@@ -42,5 +42,6 @@ class Enricher:
         if ex.status == "done":
             fit, rank, details = score(f, cols.get("remote_policy", remote_policy), self.index,
                                        self.profile, self.weights)
+            details["ranked_with"] = self.profile.get("_version")
             cols.update(fit_score=fit, rank_score=rank, rank_details=details)
         return cols, (jd.dealbreaker(f, self.profile) if f else None)

@@ -32,3 +32,11 @@ def test_invalid_yaml_does_not_echo_content():
     with pytest.raises(ConfigError) as exc:
         load_profile(env={"PROFILE_YAML": "secret_value: [unclosed"}, path=MISSING)
     assert "secret_value" not in str(exc.value)
+
+
+def test_invalid_title_pattern_is_dropped_not_fatal():
+    from pipeline.config import validate_profile
+    import yaml
+    prof = yaml.safe_load(EXAMPLE.read_text())
+    prof["titles"]["allow"] = ["data engineer", "(unclosed"]
+    assert validate_profile(prof, "test")["titles"]["allow"] == ["data engineer"]

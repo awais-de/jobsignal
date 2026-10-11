@@ -6,6 +6,7 @@ import Applications from "./Applications";
 import Feed from "./Feed";
 import Login from "./Login";
 import ManualAdd from "./ManualAdd";
+import ProfilePage from "./Profile";
 import RunNow from "./RunNow";
 
 export default function App() {
@@ -27,9 +28,9 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications" | "add";
+type View = "feed" | "applications" | "add" | "profile";
 const viewFromHash = (): View =>
-  window.location.hash === "#applications" ? "applications" : window.location.hash === "#add" ? "add" : "feed";
+  ({ "#applications": "applications", "#add": "add", "#profile": "profile" } as Record<string, View>)[window.location.hash] ?? "feed";
 
 function Shell() {
   const [view, setView] = useState<View>(viewFromHash);
@@ -48,13 +49,14 @@ function Shell() {
           <a href="#" className={view === "feed" ? "active" : ""}>Feed</a>
           <a href="#applications" className={view === "applications" ? "active" : ""}>Applications</a>
           <a href="#add" className={view === "add" ? "active" : ""}>+ Add</a>
+          <a href="#profile" className={view === "profile" ? "active" : ""}>Profile</a>
         </nav>
         <div className="header-right">
           <RunNow />
           <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
         </div>
       </header>
-      {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : <ManualAdd />}
+      {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : <ProfilePage />}
     </div>
   );
 }

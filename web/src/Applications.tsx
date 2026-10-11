@@ -208,6 +208,7 @@ export default function Applications() {
             <tr>
               <th>Company</th>
               <th>Role</th>
+              <th>Location</th>
               <th>Status</th>
               <th>Applied</th>
               <th>Last update</th>
@@ -233,6 +234,7 @@ export default function Applications() {
                       {p.title}
                       {url && <> <a href={url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>↗</a></>}
                     </td>
+                    <td className="muted">{p.city ?? "–"}</td>
                     <td>
                       <span className={`status status-${tone(st?.event_type ?? "drafted")}`}>
                         {EVENT_LABELS[st?.event_type ?? "drafted"]}
@@ -266,7 +268,7 @@ export default function Applications() {
                   </tr>
                   {isOpen && (
                     <tr className="detail">
-                      <td colSpan={10}>
+                      <td colSpan={11}>
                         <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}
                                 onJd={(jd) => patch(a, { jd_snapshot: jd })}>
                           {scheduling?.appId === a.id && (

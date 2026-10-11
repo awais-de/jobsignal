@@ -2,7 +2,7 @@
 // All sample emails are written by hand with invented companies (spec 13.1: no real emails in fixtures).
 import { assertEquals, assert } from "jsr:@std/assert@1.0.13";
 import { classify } from "./classify.ts";
-import { extractFields } from "./extract.ts";
+import { extractFields, unforward } from "./extract.ts";
 import { matchApplication } from "./match.ts";
 import { normalizeCompany, normalizeTitle, sameCompany, titleSimilarity } from "./normalize.ts";
 
@@ -66,7 +66,7 @@ Deno.test("assessment, info request, offer, account", () => {
   assertEquals(C("Coding Challenge", "Please complete the coding challenge within 5 days."), "assessment");
   assertEquals(C("Unterlagen", "Bitte reichen Sie noch Ihre Zeugnisse nach. Fehlende Unterlagen: Arbeitszeugnis."), "info_request");
   assertEquals(C("Your offer", "We are pleased to offer you the position of Data Engineer."), "offer");
-  assertEquals(C("Bitte bestätigen", "Bitte bestätigen Sie Ihre E-Mail-Adresse, um Ihre Registrierung abzuschließen."), "account_created");
+  assertEquals(C("Bitte bestätigen", "Bitte bestätigen Sie Ihre E-Mail-Adresse, um Ihre Registrierung im Bewerberportal abzuschließen."), "account_created");
 });
 
 Deno.test("job alerts by sender", () => {
@@ -114,4 +114,30 @@ Deno.test("match order: thread, reference, company+title, company-only", () => {
 
 Deno.test("ambiguous company without title stays unmatched", () => {
   assertEquals(matchApplication({ company: "Beispiel Daten GmbH", role_title: null, reference_number: null }, OPEN, null), null);
+});
+
+// ---- regressions from the first live run (2026-10-11) ----------------------------------
+Deno.test("SaaS sign-up is not a job-portal registration", () => {
+  assertEquals(C("Confirm your email and launch your projects", "Please confirm your email address.", "cloudtool.example"), "other");
+  assertEquals(classify("beispiel.myworkdayjobs.com", "Bitte bestätigen", "Bitte bestätigen Sie Ihre E-Mail-Adresse").category, "account_created");
+  assertEquals(C("Willkommen im Karriereportal", "Bitte bestätigen Sie Ihre E-Mail-Adresse."), "account_created");
+});
+
+Deno.test("forwarded email: original sender, subject and body", () => {
+  const body = "Hier die Bestätigung.\n\n---------- Forwarded message ---------\n" +
+    "From: Beispielwerk Recruiting <jobs@beispielwerk.example>\nDate: Fri, 9 Oct 2026 at 10:00\n" +
+    "Subject: Beispielwerk: Your Application confirmation - IT Project Manager (m/f/d)\nTo: <me@old.example>\n\n" +
+    "Thank you for applying to Beispielwerk.";
+  const f = unforward("Fwd: Beispielwerk: Your Application confirmation - IT Project Manager (m/f/d)", body)!;
+  assertEquals(f.from, "Beispielwerk Recruiting <jobs@beispielwerk.example>");
+  assertEquals(f.subject, "Beispielwerk: Your Application confirmation - IT Project Manager (m/f/d)");
+  assert(f.body.startsWith("Thank you for applying"));
+  assertEquals(unforward("Ihre Bewerbung", "no forward"), null);
+});
+
+Deno.test("company and role from a 'Company: Application confirmation - Role' subject", () => {
+  const e = extractFields("Recruiting", "beispielwerk.example", "Beispielwerk: Your Application confirmation - IT Project Manager (m/f/d)",
+    "Thank you for applying.");
+  assertEquals(e.company, "Beispielwerk");
+  assertEquals(e.role_title, "IT Project Manager");
 });

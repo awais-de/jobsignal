@@ -1,5 +1,6 @@
 // Rules-based email classification (spec 10.3). No LLM reads email (decision 14):
 // conflicts and no-match cases get low confidence and go to the manual queue.
+import { atsForDomain } from "./extract.ts";
 
 export type Category =
   | "application_confirmation" | "rejection" | "interview_invitation" | "assessment"
@@ -24,6 +25,8 @@ const RULES: [Category, RegExp][] = [
   ["account_created", /(konto (wurde )?(erfolgreich )?erstellt|registrierung (zu )?(bestätigen|abzuschließen|abschließen|erfolgreich)|e-?mail-?adresse (zu )?(bestätigen|verifizieren)|(bestätigen|verifizieren) sie (bitte )?(ihre|deine) e-?mail|verify your (email|account)|confirm your (email|account|registration)|account (has been )?created|activate your account|welcome to .{0,40}(career|talent|job) (portal|community|network))/i],
 ];
 
+const JOB_CONTEXT = /(karriere|career|jobs?\b|bewerb|talent|recruit|stellen|candidate|kandidat|applicant|vacanc)/i;
+
 // When several categories match, the more specific/urgent one wins (and confidence drops).
 const PRIORITY: Category[] = ["offer", "interview_invitation", "assessment", "info_request", "rejection",
                               "account_created", "application_confirmation"];
@@ -35,7 +38,11 @@ export function classify(fromDomain: string, subject: string, body: string): Cla
   }
   // Subject is the strongest signal; body checked on its first part (templates put the gist up top).
   const head = `${subject}\n${body.slice(0, 4000)}`;
-  const hits = RULES.filter(([, re]) => re.test(head)).map(([c]) => c);
+  let hits = RULES.filter(([, re]) => re.test(head)).map(([c]) => c);
+  // "Confirm your email" is only a job-portal registration with job context (not e.g. a SaaS sign-up).
+  if (hits.includes("account_created") && !atsForDomain(domain) && !JOB_CONTEXT.test(`${domain}\n${head}`)) {
+    hits = hits.filter((c) => c !== "account_created");
+  }
   if (hits.length === 0) return { category: "other", confidence: 0.5, candidates: [] };
   const ordered = PRIORITY.filter((c) => hits.includes(c));
   // A confirmation that merely mentions a later interview stays a confirmation when the subject says so.

@@ -24,6 +24,27 @@ export type Extracted = {
   ats: string | null;
 };
 
+/**
+ * A forwarded email ('Fwd:', 'WG:') would otherwise look like it came from the owner. Returns the
+ * original sender, subject and body from the forwarded header block, or null if not forwarded.
+ */
+export function unforward(subject: string, body: string): { from: string; subject: string; body: string } | null {
+  if (!/^\s*(fwd?|wg|fw|weitergeleitet)\s*:/i.test(subject)) return null;
+  const m = body.match(
+    /(?:-{3,}\s*(?:forwarded message|weitergeleitete nachricht|original message|ursprüngliche nachricht)\s*-{3,}|begin forwarded message:|anfang der weitergeleiteten nachricht:)([\s\S]*)/i,
+  );
+  if (!m) return null;
+  const block = m[1];
+  const from = block.match(/^\s*(?:from|von)\s*:\s*(.+)$/im)?.[1]?.trim();
+  if (!from) return null;
+  const origSubject = block.match(/^\s*(?:subject|betreff)\s*:\s*(.+)$/im)?.[1]?.trim()
+    ?? subject.replace(/^\s*(fwd?|wg|fw|weitergeleitet)\s*:\s*/i, "");
+  // The original body starts after the header lines (first blank line after 'Subject:'/'Betreff:').
+  const after = block.split(/^\s*(?:subject|betreff)\s*:.*$/im)[1] ?? block;
+  const origBody = after.replace(/^\s*(?:to|an|cc|date|datum|gesendet|sent)\s*:.*$/gim, "").trim();
+  return { from, subject: origSubject, body: origBody };
+}
+
 export function atsForDomain(domain: string): string | null {
   const d = domain.toLowerCase();
   for (const [suffix, ats] of Object.entries(ATS_DOMAINS)) {
@@ -33,11 +54,15 @@ export function atsForDomain(domain: string): string | null {
 }
 
 const COMPANY_IN_TEXT = [
+  // Subject prefix: "Retarus: Your Application confirmation - …", "Beispiel GmbH | Ihre Bewerbung"
+  /^([A-ZÄÖÜ][\w&.\-' ]{1,40}?)\s*[:|]\s*(?:your |ihre |deine |re: )?(?:application|bewerbung|eingangsbestätigung)/i,
   /(?:ihre|deine) bewerbung (?:bei|an) (?:der |die |dem )?([A-ZÄÖÜ][\w&.\-' ]{1,60}?)(?:[,.!:\n]| als | für | - | – |$)/,
   /(?:your application (?:to|at|with)|applying (?:to|at)|interest in (?:joining |working at )?)([A-Z][\w&.\-' ]{1,60}?)(?:[,.!:\n]| for | as | - | – |$)/,
   /(?:bei|at) ([A-ZÄÖÜ][\w&.\-]+(?: [A-ZÄÖÜ&][\w&.\-]+){0,3} (?:GmbH|AG|SE|KG|Inc\.?|Ltd\.?)(?: & Co\. KG)?)/,
 ];
 const ROLE_IN_TEXT = [
+  // Subject suffix: "… Application confirmation - IT Project Manager (m/f/d)"
+  /(?:application|bewerbung)(?: confirmation|sbestätigung|seingang| received| eingegangen)?\s*[-–:|]\s*([^\n]{3,90}?)\s*(?:\(|$)/im,
   /(?:bewerbung|bewerben|beworben)\s+(?:als|für die (?:stelle|position)(?: als)?|auf die (?:stelle|position)(?: als)?)\s+[„"]?([^\n„""",.!?]{3,90}?)[""""]?(?:\s+(?:bei|in|an|\(|-|–)|[,.!?\n]|$)/i,
   /(?:application for|applied for|applying for)\s+(?:the\s+)?(?:position|role|job)?\s*(?:of\s+)?[„"']?([^\n"'„"",.!?]{3,90}?)["'"]?(?:\s+(?:at|in|with|\(|-|–)|[,.!?\n]|$)/i,
   /(?:stelle|position|role|job)\s*:\s*([^\n]{3,90})/i,

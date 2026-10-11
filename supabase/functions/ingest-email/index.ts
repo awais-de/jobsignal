@@ -4,7 +4,7 @@
 // to send an alert email or create a calendar entry (the bridge runs inside the Google account).
 
 import { classify, type Category } from "../_shared/inbox/classify.ts";
-import { extractFields } from "../_shared/inbox/extract.ts";
+import { extractFields, unforward } from "../_shared/inbox/extract.ts";
 import { matchApplication, type OpenApp } from "../_shared/inbox/match.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -12,6 +12,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const INGEST_SECRET = Deno.env.get("INGEST_SECRET") ?? "";
 const APP_URL = Deno.env.get("ALLOWED_ORIGIN") ?? "";
 
+const FORWARD_PREFIX = /^\s*((fwd?|wg|fw|weitergeleitet)\s*:\s*)+/i;
 const TERMINAL = new Set(["rejected", "withdrawn", "offer_accepted", "offer_declined"]);
 const URGENT: Partial<Record<Category, string>> = {
   interview_invitation: "Interview invitation", assessment: "Assessment", info_request: "Information requested",
@@ -91,9 +92,14 @@ async function handle(req: Request): Promise<Response> {
   try { m = await req.json(); } catch { return json({ error: "bad_request" }, 400); }
   if (!m.gmail_message_id) return json({ error: "bad_request" }, 400);
 
-  const from = parseFrom(m.from ?? "");
-  const subject = (m.subject ?? "").slice(0, 500);
-  const body = (m.body_text ?? "").slice(0, 20000);
+  // A forwarded email (e.g. from the old address) is processed as its original.
+  const fwd = unforward(m.subject ?? "", m.body_text ?? "");
+  // Forwarded without a header block: the sender is the owner's other mailbox, so it must not
+  // be used as the company; only the subject (prefix removed) and body are informative.
+  const headerless = !fwd && FORWARD_PREFIX.test(m.subject ?? "");
+  const from = parseFrom(fwd?.from ?? m.from ?? "");
+  const subject = (fwd?.subject ?? (m.subject ?? "").replace(FORWARD_PREFIX, "")).slice(0, 500);
+  const body = (fwd?.body ?? m.body_text ?? "").slice(0, 20000);
   const receivedAt = m.date ? new Date(m.date).toISOString() : new Date().toISOString();
 
   // 1. store once (spec 10.2.2)
@@ -111,7 +117,7 @@ async function handle(req: Request): Promise<Response> {
 
   // 2. classify + extract (spec 10.3, 10.4)
   const cls = classify(from.domain, subject, body);
-  const facts = extractFields(from.name, from.domain, subject, body);
+  const facts = headerless ? extractFields("", "", subject, body) : extractFields(from.name, from.domain, subject, body);
   const actions: Action[] = [];
   let matchStatus = "ignored";
   let applicationId: string | null = null;

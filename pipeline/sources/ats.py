@@ -13,6 +13,7 @@ documented formats and are `VERIFY` until a live company with jobs has been seen
 from __future__ import annotations
 
 import re
+import time
 from datetime import date, datetime
 from html import unescape
 from typing import Any, Callable
@@ -97,9 +98,13 @@ def _posting(ats: str, token: str, job_id: Any, company: dict[str, Any], **kw: A
                       source_data={"company_watch": company["name"], "technique": f"ats:{ats}"}, **kw)
 
 
+PACE_SECONDS = 0.4   # between requests in multi-request feeds (Workday, SmartRecruiters details)
+
+
 class ATS:
-    def __init__(self, client: httpx.Client):
+    def __init__(self, client: httpx.Client, pace: float = PACE_SECONDS):
         self.c = client
+        self.pace = pace
 
     # -- Personio ---------------------------------------------------------------------
     def personio_probe(self, t: str):
@@ -245,10 +250,128 @@ class ATS:
         return n, re.sub(r"^.*\|\s*", "", _title(r.text))
 
 
+    # -- SmartRecruiters (verified 2026-10-11) ---------------------------------------------
+    # List API has no descriptions; details are fetched only for jobs not seen before.
+    def smartrecruiters_probe(self, t: str):
+        r = self.c.get(f"https://api.smartrecruiters.com/v1/companies/{t}/postings", params={"limit": 1})
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        content = d.get("content") or []
+        return int(d.get("totalFound") or 0), ((content[0].get("company") or {}).get("name") if content else "")
+
+    def smartrecruiters_jobs(self, t: str, company: dict[str, Any], known=lambda ids: set(),
+                             search_terms: list[str] | None = None, title_ok=lambda title: True, **_) -> list[RawPosting]:
+        # Large employers list thousands of jobs in Germany: search with the owner's terms (like Workday).
+        by_id: dict[str, dict[str, Any]] = {}
+        for term in (search_terms or [""]):
+            for offset in range(0, 200, 100):
+                d = self.c.get(f"https://api.smartrecruiters.com/v1/companies/{t}/postings",
+                               params={"country": "de", "q": term, "limit": 100, "offset": offset}).json()
+                for i in d.get("content") or []:
+                    by_id[i["id"]] = i
+                if offset + 100 >= int(d.get("totalFound") or 0):
+                    break
+        items = [i for i in by_id.values() if title_ok(i.get("name") or "")]
+        ids = [f"smartrecruiters:{t}:{i['id']}" for i in items]
+        seen = known(ids)
+        out = []
+        for i, jid in zip(items, ids):
+            loc = i.get("location") or {}
+            kw = dict(title=i.get("name") or "", city=(loc.get("city") or "").title() or None,
+                      country=_country(None, loc.get("country")), location_raw=loc.get("fullLocation"),
+                      posted_date=_date(i.get("releasedDate")),
+                      contract_type=_contract((i.get("typeOfEmployment") or {}).get("label")),
+                      remote_policy="remote" if loc.get("remote") else ("hybrid" if loc.get("hybrid") else None),
+                      source_url=f"https://jobs.smartrecruiters.com/{t}/{i['id']}",
+                      apply_url=f"https://jobs.smartrecruiters.com/{t}/{i['id']}")
+            if jid not in seen:
+                time.sleep(self.pace)
+                det = self.c.get(f"https://api.smartrecruiters.com/v1/companies/{t}/postings/{i['id']}").json()
+                sections = ((det.get("jobAd") or {}).get("sections") or {})
+                kw["description"] = "\n\n".join(_text(sec.get("text")) for k, sec in sections.items()
+                                                 if k != "companyDescription" and isinstance(sec, dict)) or None
+            out.append(_posting("smartrecruiters", t, i["id"], company, **kw))
+        return out
+
+    # -- Workday (verified 2026-10-11) --------------------------------------------------------
+    # token = "host|tenant|site", e.g. "acme.wd3.myworkdayjobs.com|acme|AcmeCareers". Large employers list
+    # thousands of jobs worldwide, so the search uses the owner's search terms and the Germany facet.
+    def workday_jobs(self, token: str, company: dict[str, Any], known=lambda ids: set(),
+                     search_terms: list[str] | None = None, title_ok=lambda title: True, **_) -> list[RawPosting]:
+        host, tenant, site = token.split("|")
+        api = f"https://{host}/wday/cxs/{tenant}/{site}"
+        found: dict[str, dict[str, Any]] = {}
+        for term in (search_terms or [""]):
+            body: dict[str, Any] = {"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": term}
+            time.sleep(self.pace)
+            first = self.c.post(f"{api}/jobs", json=body).json()
+            facet = _workday_germany(first.get("facets") or [])
+            if facet:
+                body["appliedFacets"] = {facet[0]: [facet[1]]}
+            for offset in (0, 20):
+                d = first if (offset == 0 and not facet) else self.c.post(f"{api}/jobs", json={**body, "offset": offset}).json()
+                for jp in d.get("jobPostings") or []:
+                    if (facet or is_germany(jp.get("locationsText") or "")) and title_ok(jp.get("title") or ""):
+                        found[jp["externalPath"]] = jp
+                if len(d.get("jobPostings") or []) < 20:
+                    break
+        ids = {path: f"workday:{tenant}:{path.rsplit('/', 1)[-1]}" for path in found}
+        seen = known(list(ids.values()))
+        out = []
+        for path, jp in found.items():
+            kw = dict(title=jp.get("title") or "", location_raw=jp.get("locationsText"),
+                      city=(jp.get("locationsText") or "").split(",")[0].strip() or None, country="DE",
+                      source_url=f"https://{host}/{site}{path}", apply_url=f"https://{host}/{site}{path}")
+            if ids[path] not in seen:
+                time.sleep(self.pace)
+                info = (self.c.get(f"{api}{path}").json().get("jobPostingInfo") or {})
+                kw.update(description=_text(info.get("jobDescription")) or None, posted_date=_date(info.get("startDate")),
+                          contract_type=_contract(info.get("timeType")),
+                          country=_country(None, (info.get("country") or {}).get("descriptor")) or "DE",
+                          city=(info.get("location") or kw["city"]))
+            out.append(_posting("workday", tenant, path.rsplit("/", 1)[-1], company, **kw))
+        return out
+
+    # -- JOIN / Teamtailor: probe only (jobs via JSON-LD job pages, see careers.py) --------------
+    def join_probe(self, t: str):
+        r = self.c.get(f"https://join.com/companies/{t}")
+        if r.status_code != 200:
+            return None
+        n = len(set(re.findall(rf"/companies/{re.escape(t)}/(\d+)", r.text)))
+        return n, re.sub(r"^jobs at\s+|\s*\|\s*join$", "", _title(r.text), flags=re.I)
+
+    def teamtailor_probe(self, t: str):
+        r = self.c.get(f"https://{t}.teamtailor.com/jobs")
+        if r.status_code != 200:
+            return None
+        n = len(set(re.findall(r"/jobs/(\d+)", r.text)))
+        return n, re.sub(r"^jobs list\s*-\s*", "", _title(r.text), flags=re.I)
+
+
+def _workday_germany(facets: list[dict[str, Any]]) -> tuple[str, str] | None:
+    """(facet parameter, value id) of the 'Germany' location value. Values can sit inside nested
+    facet groups (e.g. locationMainGroup > locationHierarchy1); the parameter to send is the one of
+    the nearest enclosing facet, not the outer group (verified 2026-10-11: the outer one gives HTTP 400)."""
+    stack = [(f, f.get("facetParameter")) for f in facets]
+    while stack:
+        node, param = stack.pop()
+        if node.get("id") and re.fullmatch(r"(germany|deutschland)", (node.get("descriptor") or "").strip(), re.I):
+            return param, node["id"]
+        for child in node.get("values") or []:
+            stack.append((child, child.get("facetParameter") or node.get("facetParameter") or param))
+    return None
+
+
 # Probe order: most common in German job ads first; the first verified hit wins.
-PROBE_ORDER = ["personio", "softgarden", "greenhouse", "recruitee", "ashby", "lever", "workable"]
+PROBE_ORDER = ["personio", "softgarden", "greenhouse", "recruitee", "join", "smartrecruiters", "ashby",
+               "teamtailor", "lever", "workable"]
 
 
-def feed_jobs(ats_api: ATS, ats: str, token: str, company: dict[str, Any]) -> list[RawPosting]:
-    fetch: Callable[[str, dict[str, Any]], list[RawPosting]] = getattr(ats_api, f"{ats}_jobs")
+def feed_jobs(ats_api: ATS, ats: str, token: str, company: dict[str, Any], **kw: Any) -> list[RawPosting]:
+    """kw: known (ids -> already stored), search_terms and title_ok (Workday, SmartRecruiters:
+    titles that can't pass the owner's filters are skipped before their details are fetched)."""
+    fetch: Callable[..., list[RawPosting]] = getattr(ats_api, f"{ats}_jobs")
+    if ats in ("smartrecruiters", "workday"):
+        return fetch(token, company, **kw)
     return fetch(token, company)

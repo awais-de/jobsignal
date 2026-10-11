@@ -218,7 +218,7 @@ class Database:
 
     def watched_companies(self) -> list[dict[str, Any]]:
         return self._req("GET", "/companies", params={
-            "select": "id,name,ats,ats_token,filter_mode", "watch": "eq.true", "discovery_status": "eq.found",
+            "select": "id,name,ats,ats_token,filter_mode,careers_url", "watch": "eq.true", "discovery_status": "eq.found",
             "deleted_at": "is.null"})
 
     # -- tracking ---------------------------------------------------------------

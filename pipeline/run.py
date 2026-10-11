@@ -141,7 +141,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         named = {w["name"].lower() for w in watchlist}
         watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named]
     careers = CareersSource(
-        watchlist, sources_cfg.get("careers", {}),
+        watchlist, {**sources_cfg.get("careers", {}), "search_terms": profile["search_terms"],
+                    "title_allow": profile["titles"].get("allow", [])},
         known_ids=(lambda ids: db.known_ids("careers", ids)) if db else (lambda ids: set()),
         page_extractor=make_page_extractor(page_router, llm_cfg["stages"][PAGE_STAGE]),
     )
@@ -375,10 +376,12 @@ def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], no
             break
         found = probe_company(comp["name"], api)
         if found:
-            db.update_company(comp["id"], {"discovery_status": "found", "ats": found.ats, "ats_token": found.token,
-                                           "verified_name": found.verified_name, "feed_type": "ats_feed",
-                                           "watch": True, "discovery_checked_at": now.isoformat()})
-            counts["found"] += 1
+            db.update_company(comp["id"], {
+                "discovery_status": "found", "ats": found.ats, "ats_token": found.token,
+                "verified_name": found.verified_name, "careers_url": found.careers_url,
+                "feed_type": "jsonld" if found.ats in ("jsonld", "sitemap") else "ats_feed",
+                "watch": True, "discovery_checked_at": now.isoformat(), "notes": f"found via {found.via}"})
+            counts[f"found_via_{found.via}"] += 1
         else:
             db.update_company(comp["id"], {"discovery_status": "not_found", "discovery_checked_at": now.isoformat(),
                                            "next_check_at": (now + timedelta(days=int(cfg.get("retry_not_found_days", 30)))).isoformat()})

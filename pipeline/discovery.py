@@ -16,22 +16,11 @@ from typing import Any
 
 import httpx
 
-from pipeline.normalize import normalize_company
+from pipeline.discovery_names import GENERIC, tokens  # noqa: F401  (re-exported)
 from pipeline.sources.ats import ATS, PROBE_ORDER
+from pipeline.website import discover_via_website
 
 log = logging.getLogger("jobsignal")
-
-# Words that don't identify a company (dropped from slugs and from the name check).
-GENERIC = {"deutschland", "germany", "group", "gruppe", "holding", "und", "the", "of", "de", "international",
-           "services", "service", "europe", "niederlassung", "zweigniederlassung", "stiftung", "jobs", "bei",
-           "at", "career", "careers", "karriere", "board", "stellenangebote", "co", "ag", "gmbh"}
-_UMLAUT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
-
-
-def tokens(name: str) -> list[str]:
-    return [t for t in normalize_company(name).translate(_UMLAUT).split()
-            if t not in GENERIC and re.fullmatch(r"[a-z0-9]+", t)]
-
 
 def slug_variants(name: str) -> list[str]:
     toks = tokens(name)
@@ -56,10 +45,12 @@ def same_company(name: str, ats_name: str) -> bool:
 
 @dataclass
 class Found:
-    ats: str
+    ats: str                    # an ATS, or 'jsonld' / 'sitemap' (company's own career site)
     token: str
     jobs: int
     verified_name: str
+    careers_url: str | None = None
+    via: str = "name"           # 'name' (probing) or 'website' (linked from the company's own site)
 
 
 def _try(ats: ATS, system: str, slug: str) -> tuple[int, str] | None:
@@ -69,9 +60,9 @@ def _try(ats: ATS, system: str, slug: str) -> tuple[int, str] | None:
         return None
 
 
-def probe_company(name: str, ats: ATS) -> Found | None:
-    """For each name spelling, ask all systems in parallel (each host gets one request); the first
-    verified hit in PROBE_ORDER wins."""
+def probe_company(name: str, ats: ATS, use_website: bool = True) -> Found | None:
+    """1. Name probing: for each spelling, ask all systems in parallel; the first verified hit in
+    PROBE_ORDER wins. 2. Otherwise the company's website (finds Workday, SuccessFactors, custom sites)."""
     with ThreadPoolExecutor(max_workers=len(PROBE_ORDER)) as pool:
         for slug in slug_variants(name):
             results = dict(zip(PROBE_ORDER, pool.map(lambda s: _try(ats, s, slug), PROBE_ORDER)))
@@ -79,15 +70,49 @@ def probe_company(name: str, ats: ATS) -> Found | None:
                 res = results[system]
                 if res and res[0] >= 1 and same_company(name, res[1]):
                     return Found(system, slug, res[0], res[1])
-    return None
+    if not use_website:
+        return None
+    hit = discover_via_website(name, ats.c)
+    if not hit:
+        return None
+    # Linked from the company's own site: trusted as its system, but it must have jobs.
+    if hit.kind in ("jsonld", "sitemap"):
+        return Found(hit.kind, hit.token, 1, name, hit.careers_url, "website")
+    if hit.kind == "workday":
+        n = _workday_count(ats, hit.token)
+    else:
+        res = _try(ats, hit.kind, hit.token) if hasattr(ats, f"{hit.kind}_probe") else None
+        n = res[0] if res else 0
+    return Found(hit.kind, hit.token, n, name, hit.careers_url, "website") if n >= 1 else None
+
+
+def _workday_count(ats: ATS, token: str) -> int:
+    host, tenant, site = token.split("|")
+    try:
+        r = ats.c.post(f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
+                       json={"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""})
+        return int(r.json().get("total") or 0) if r.status_code == 200 else 0
+    except (httpx.HTTPError, ValueError):
+        return 0
+
+
+# ATS whose jobs are read from JSON-LD job pages (careers.py career_page technique).
+_JSONLD_BOARDS = {
+    "softgarden": (lambda t: f"https://{t}.softgarden.io/en/vacancies", lambda t: r"/job/\d+/"),
+    "join": (lambda t: f"https://join.com/companies/{t}", lambda t: rf"/companies/{re.escape(t)}/\d+"),
+    "teamtailor": (lambda t: f"https://{t}.teamtailor.com/jobs", lambda t: r"/jobs/\d+"),
+}
 
 
 def watch_entry(c: dict[str, Any]) -> dict[str, Any]:
     """A discovered company as a careers-source watchlist entry."""
     entry = {"name": c["name"], "filters": c.get("filter_mode") or "all", "company_id": c["id"]}
-    if c["ats"] == "softgarden":
-        entry.update(technique="career_page", url=f"https://{c['ats_token']}.softgarden.io/en/vacancies",
-                     link_pattern=r"/job/\d+/")
+    ats, token = c["ats"], c["ats_token"]
+    if ats in _JSONLD_BOARDS:
+        url, pattern = _JSONLD_BOARDS[ats]
+        entry.update(technique="career_page", url=url(token), link_pattern=pattern(token))
+    elif ats in ("jsonld", "sitemap"):
+        entry.update(technique="career_page", url=c["careers_url"], link_pattern=token)
     else:
-        entry.update(technique="ats", ats=c["ats"], token=c["ats_token"])
+        entry.update(technique="ats", ats=ats, token=token)
     return entry

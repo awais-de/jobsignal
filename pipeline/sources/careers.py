@@ -27,7 +27,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 
 from pipeline.models import RawPosting
-from pipeline.sources.ats import ATS, feed_jobs
+from pipeline.sources.ats import _FOREIGN, ATS, feed_jobs
 
 log = logging.getLogger("jobsignal")
 
@@ -57,6 +57,8 @@ class CareersSource:
         self.companies = companies
         self.delay = float(settings.get("request_delay_seconds", 1.0))
         self.max_new = int(settings.get("max_new_pages_per_company", 120))
+        self.search_terms: list[str] = list(settings.get("search_terms") or [])   # Workday search
+        self.title_allow = [re.compile(p, re.I) for p in settings.get("title_allow") or []]
         self.known_ids = known_ids
         self.page_extractor = page_extractor
         self.client = client or httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True)
@@ -85,7 +87,10 @@ class CareersSource:
 
     # -- ats (discovered companies; spec 7.2) ----------------------------------------------
     def _ats(self, company: dict[str, Any]) -> list[RawPosting]:
-        jobs = feed_jobs(ATS(self.client), company["ats"], company["token"], company)
+        all_mode = company.get("filters", "watch") == "all" and self.title_allow
+        jobs = feed_jobs(ATS(self.client), company["ats"], company["token"], company,
+                         known=self.known_ids, search_terms=self.search_terms,
+                         title_ok=(lambda t: any(p.search(t) for p in self.title_allow)) if all_mode else (lambda t: True))
         ids = [p.source_job_id for p in jobs]
         initial = not self.known_ids(ids) if ids else False
         for p in jobs:
@@ -103,6 +108,7 @@ class CareersSource:
             links = [urljoin(url, unescape(h)) for h in re.findall(r'href=["\']([^"\'#]+)["\']', text)]
         links = sorted({_canonical(u) for u in links if pattern.search(u)})
 
+        links = [u for u in links if self._worth_fetching(u, company)]
         known = self.known_ids(links) if links else set()
         initial = not known
         out: list[RawPosting] = []
@@ -123,6 +129,16 @@ class CareersSource:
                 posting.source_data["initial_load"] = initial
                 out.append(posting)
         return out
+
+    def _worth_fetching(self, url: str, company: dict[str, Any]) -> bool:
+        """Large portals list thousands of jobs worldwide: skip URLs that name a foreign place, and for
+        companies on the normal filters, URLs whose readable title words can't match the title list."""
+        words = re.sub(r"[-_/%0-9]+", " ", unescape(urlparse(url).path)).strip()
+        if _FOREIGN.search(words):
+            return False
+        if company.get("filters", "watch") == "all" and self.title_allow and len(re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", words)) >= 2:
+            return any(p.search(words) for p in self.title_allow)
+        return True
 
     def _job_page(self, url: str, company: dict[str, Any]) -> RawPosting | None:
         html = self._get(url).text

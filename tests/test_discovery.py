@@ -97,3 +97,31 @@ def test_watch_entry():
 def test_personio_offices_default_to_germany_unless_foreign(office, country):
     a = api({"https://bd.jobs.personio.de/xml": PERSONIO_XML.replace("München", office)})
     assert feed_jobs(a, "personio", "bd", {"name": "BD"})[0].country == country
+
+
+def test_workday_germany_facet_uses_nested_parameter():
+    from pipeline.sources.ats import _workday_germany
+    facets = [{"facetParameter": "locationMainGroup", "values": [
+        {"facetParameter": "locationHierarchy2", "descriptor": "Location Type", "values": [{"descriptor": "Office", "id": "o"}]},
+        {"facetParameter": "locationHierarchy1", "descriptor": "Locations", "values": [
+            {"descriptor": "Austria", "id": "at"}, {"descriptor": "Germany", "id": "de"}]}]}]
+    assert _workday_germany(facets) == ("locationHierarchy1", "de")
+    assert _workday_germany([{"facetParameter": "locations", "values": [{"descriptor": "Germany", "id": "x"}]}]) == ("locations", "x")
+
+
+def test_smartrecruiters_skips_titles_before_details():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if request.url.path.endswith("/postings"):
+            return httpx.Response(200, json={"totalFound": 2, "content": [
+                {"id": "1", "name": "Data Engineer", "location": {"city": "berlin", "country": "de"}, "releasedDate": "2026-10-09T10:00:00Z"},
+                {"id": "2", "name": "Elektriker", "location": {"city": "berlin", "country": "de"}}]})
+        return httpx.Response(200, json={"jobAd": {"sections": {"jobDescription": {"text": "<p>SQL</p>"}}}})
+
+    a = ATS(httpx.Client(transport=httpx.MockTransport(handler)), pace=0)
+    jobs = feed_jobs(a, "smartrecruiters", "bd", {"name": "BD"}, search_terms=["data"],
+                     title_ok=lambda t: "Data" in t)
+    assert [j.title for j in jobs] == ["Data Engineer"] and jobs[0].description == "SQL" and jobs[0].city == "Berlin"
+    assert sum("/postings/" in u for u in calls) == 1                      # one detail request only

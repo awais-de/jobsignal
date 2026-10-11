@@ -11,9 +11,10 @@ export type Resume = {
   drive_file_id: string;
   drive_url: string | null;
   created_at: string;
+  extracted_text: string | null;
 };
 
-export const RESUME_COLUMNS = "id,uid,label,drive_file_id,drive_url,created_at";
+export const RESUME_COLUMNS = "id,uid,label,drive_file_id,drive_url,created_at,extracted_text";
 
 /** Extracts the file id from the usual Drive/Docs share-link shapes. */
 export function driveFileId(url: string): string | null {
@@ -52,6 +53,7 @@ export function ResumePicker({ resumes, value, onPick, onCreated, onError }: {
   const [lang, setLang] = useState<"EN" | "DE">("EN");
   const [layout, setLayout] = useState<"1C" | "2C">("1C");
   const [label, setLabel] = useState("");
+  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
   const fileId = driveFileId(link);
@@ -67,6 +69,7 @@ export function ResumePicker({ resumes, value, onPick, onCreated, onError }: {
       layout: layout === "1C" ? "single_column" : "two_column",
       drive_file_id: fileId,
       drive_url: driveUrl(fileId),
+      extracted_text: text.trim() || null,
     }).select(RESUME_COLUMNS).single();
     setBusy(false);
     if (error) {
@@ -77,6 +80,7 @@ export function ResumePicker({ resumes, value, onPick, onCreated, onError }: {
     setAdding(false);
     setLink("");
     setLabel("");
+    setText("");
   }
 
   return (
@@ -104,6 +108,8 @@ export function ResumePicker({ resumes, value, onPick, onCreated, onError }: {
             <input placeholder="Label (optional), e.g. data eng focus" value={label}
                    onChange={(e) => setLabel(e.target.value)} />
           </div>
+          <textarea rows={4} placeholder="CV text (optional): open the PDF, select all, copy, paste. Used for interview prep."
+                    value={text} onChange={(e) => setText(e.target.value)} />
           <div className="row">
             <span className="muted">UID: <strong>{uid}</strong>{link && !fileId && " · not a Drive file link"}</span>
             <button className="primary small" disabled={!fileId || busy} onClick={register}>Register and use</button>
@@ -136,6 +142,34 @@ export function CoverLetter({ fileId, onSave }: { fileId: string | null; onSave:
         Save
       </button>
       {editing && <button className="link" onClick={() => setEditing(false)}>Cancel</button>}
+    </div>
+  );
+}
+
+/** Adds the CV text to a registered resume that doesn't have it yet (used by the prep prompt). */
+export function ResumeText({ resume, onSaved, onError }: {
+  resume: Resume;
+  onSaved: (r: Resume) => void;
+  onError: (msg: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    const { data, error } = await supabase.from("resumes").update({ extracted_text: text.trim() })
+      .eq("id", resume.id).select(RESUME_COLUMNS).single();
+    setBusy(false);
+    if (error) return onError(error.message);
+    onSaved(data as Resume);
+  }
+  return (
+    <div className="doc-row">
+      <span className="muted">CV text</span>
+      <div>
+        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)}
+                  placeholder={`Paste the text of ${resume.uid} once (open the PDF, select all, copy). Used for interview prep.`} />
+        <button className="small" disabled={busy || text.trim().length < 200} onClick={save}>Save CV text</button>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import Applications from "./Applications";
 import Feed from "./Feed";
 import Login from "./Login";
 import ManualAdd from "./ManualAdd";
+import RunNow from "./RunNow";
 
 export default function App() {
   // /a?t=... is the confirm page for email action links; it needs no login (the token is the auth).
@@ -48,7 +49,10 @@ function Shell() {
           <a href="#applications" className={view === "applications" ? "active" : ""}>Applications</a>
           <a href="#add" className={view === "add" ? "active" : ""}>+ Add</a>
         </nav>
-        <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
+        <div className="header-right">
+          <RunNow />
+          <button className="link" onClick={() => supabase.auth.signOut()}>Log out</button>
+        </div>
       </header>
       {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : <ManualAdd />}
     </div>

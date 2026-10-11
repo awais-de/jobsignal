@@ -425,3 +425,7 @@ verify_jwt = false
 [functions.ingest-email]
 # Called by the Apps Script bridge with the x-ingest-secret header, not a user session.
 verify_jwt = false
+
+[functions.trigger-run]
+# Verifies the owner session itself (auth /user + app_owner).
+verify_jwt = false

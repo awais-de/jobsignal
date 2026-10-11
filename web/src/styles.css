@@ -258,3 +258,29 @@ ol.timeline li::before {
 }
 .badge.account { background: #fff8c5; color: #7d4e00; }
 @media (prefers-color-scheme: dark) { .badge.account { background: #3b2e00; color: #e3b341; } }
+
+/* Job description, interview form, toast */
+.jd.clamped { max-height: 140px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.detail-body textarea { margin-bottom: 4px; }
+.badge.warn { background: #fff8c5; color: #7d4e00; margin-left: 0; }
+.interview-form { border: 1px dashed var(--accent); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
+.interview-form input, .interview-form select, .wide-input {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}
+.wide-input { width: 100%; margin: 6px 0; }
+.register textarea, .doc-row textarea {
+  width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; resize: vertical;
+}
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10;
+  background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 14px;
+}
+@media (prefers-color-scheme: dark) { .badge.warn { background: #3b2e00; color: #e3b341; } }
+
+/* Run now */
+header { flex-wrap: wrap; }
+.header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.run-now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.run-msg { font-size: 13px; color: var(--muted); }

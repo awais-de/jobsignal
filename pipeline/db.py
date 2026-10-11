@@ -92,12 +92,19 @@ class Database:
     def insert_postings(self, candidates: list[Candidate]) -> dict[str, str]:
         """Insert new candidates; returns {source_job_id or hash: id}."""
         out: dict[str, str] = {}
-        for chunk in _chunks(candidates, BATCH):
-            rows = self._req("POST", "/job_postings", json=[_row(c) for c in chunk],
-                             headers={"Prefer": "return=representation"},
-                             params={"select": "id,source_job_id,dedupe_hash"})
-            for r in rows:
-                out[r["source_job_id"] or r["dedupe_hash"]] = r["id"]
+        # PostgREST bulk inserts need identical keys in every row (PGRST102). Passed postings
+        # carry extraction/ranking columns, rejected ones don't, so insert each key-shape separately.
+        groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for c in candidates:
+            row = _row(c)
+            groups.setdefault(tuple(sorted(row)), []).append(row)
+        for rows_of_shape in groups.values():
+            for chunk in _chunks(rows_of_shape, BATCH):
+                rows = self._req("POST", "/job_postings", json=chunk,
+                                 headers={"Prefer": "return=representation"},
+                                 params={"select": "id,source_job_id,dedupe_hash"})
+                for r in rows:
+                    out[r["source_job_id"] or r["dedupe_hash"]] = r["id"]
         return out
 
     def touch(self, ids: list[str]) -> None:

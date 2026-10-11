@@ -331,3 +331,60 @@ button.x { border: none; background: none; color: var(--muted); padding: 0 4px; 
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
 button.event-date { padding: 0; color: var(--muted); font-size: inherit; text-decoration: underline dotted; }
 .danger-zone { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); text-align: right; }
+
+/* Job tabs (one job per tab, like a workspace) */
+.job-tabs {
+  display: flex; gap: 4px; overflow-x: auto; margin: -4px 0 14px; padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.job-tab {
+  display: flex; align-items: center; max-width: 240px; flex: 0 0 auto;
+  border: 1px solid var(--border); border-bottom: none; border-radius: 6px 6px 0 0; background: var(--surface);
+}
+.job-tab a {
+  padding: 5px 2px 5px 10px; font-size: 13px; color: var(--muted); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.job-tab.active { border-color: var(--accent); }
+.job-tab.active a { color: var(--text); font-weight: 600; }
+.job-tab .dot { color: var(--accent); }
+.job-tab button.link { padding: 2px 8px; font-size: 16px; line-height: 1; }
+a.link-button {
+  display: inline-block; font-size: 14px; padding: 6px 10px; border-radius: 6px; text-decoration: none;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+a.link-button.small { padding: 3px 10px; font-size: 13px; }
+.row.nowrap { flex-wrap: nowrap; }
+.h3-link { float: right; text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* Job page */
+.job-head h1 { font-size: 22px; margin: 6px 0 2px; }
+.job-head .company { font-size: 16px; }
+.job-head .actions { margin-top: 10px; }
+.job-body {
+  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; margin-top: 16px; align-items: start;
+}
+@media (max-width: 800px) { .job-body { grid-template-columns: 1fr; } }
+.notepad, .job-side {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+}
+.notepad-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.notepad-head h2 { font-size: 16px; margin: 0; }
+.notepad-head .muted { margin-left: auto; font-size: 13px; }
+.note-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.note-field textarea {
+  width: 100%; font: inherit; font-size: 14px; font-weight: 400; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; resize: vertical;
+}
+.note-field textarea:focus { outline: none; border-color: var(--accent); }
+.prompt-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid var(--border); padding-top: 10px; }
+.prompt-row select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; max-width: 100%;
+}
+.job-side h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.job-side h3:not(:first-child) { margin-top: 14px; }
+.small-text { font-size: 13px; }
+.req-skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.skill.plain { background: var(--chip); color: var(--muted); }
+.jd.jd-full { max-height: 70vh; }

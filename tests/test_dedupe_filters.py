@@ -177,6 +177,13 @@ def test_manual_entry_always_wins():
     assert c.filter_reasons == ["duplicate"]
 
 
+def test_row_with_owner_notes_is_never_replaced():
+    s = stored_from("ba_api")
+    s.has_notes = True
+    c = run([raw(job_id="NEW", source="careers")], [s])[0]
+    assert c.filter_reasons == ["duplicate"] and c.supersedes == []
+
+
 def test_rejected_sibling_is_not_canonical():
     # e.g. the Arbeitsagentur copy failed the title list, the company-site copy (watch mode) may pass
     c = run([raw(job_id="NEW", source="careers")], [stored_from("ba_api", filter_status="rejected")])[0]

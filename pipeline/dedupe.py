@@ -42,6 +42,7 @@ class StoredPosting:
     filter_status: str = "passed"
     surfaced_on: str | None = None
     has_description: bool = True
+    has_notes: bool = False
 
 
 @dataclass
@@ -100,7 +101,8 @@ def apply_dedupe(candidates: list[Candidate], stored: list[StoredPosting],
         if canonical:
             best = min(canonical, key=lambda s: preference(s.source))
             if (preference(c.raw.source) < preference(best.source)
-                    and best.triage_status == "new" and best.source != "manual"):
+                    and best.triage_status == "new" and best.source != "manual"
+                    and not any(s.has_notes for s in canonical)):      # the owner's notes stay put
                 # Better source: this candidate becomes canonical once it passes the filters.
                 c.supersedes = [s.id for s in canonical if s.triage_status == "new"]
                 if best.surfaced_on:

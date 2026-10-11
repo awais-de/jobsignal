@@ -196,9 +196,12 @@ export default function Applications() {
 
   async function copyPrep(app: App) {
     try {
+      // Notes fetched now: they may have been edited in a job tab since this list loaded.
+      const n = await supabase.from("job_postings").select("notes").eq("id", app.job_posting_id).maybeSingle();
       const prompt = await buildPrepPrompt({
         applicationId: app.id, company: app.job_postings.company_name, title: app.job_postings.title,
         appliedAt: app.applied_at, jd: app.jd_snapshot, resumeId: app.resume_id,
+        notes: (n.data as { notes: string | null } | null)?.notes ?? null,
       });
       await navigator.clipboard.writeText(prompt);
       setToast(`Interview-prep prompt for ${app.job_postings.company_name} copied`);
@@ -302,9 +305,12 @@ export default function Applications() {
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button className="small" title="Copy an interview-prep prompt for any LLM" onClick={() => copyPrep(a)}>
-                        Prep
-                      </button>
+                      <div className="row nowrap">
+                        <a className="link-button small" href={`#job/${a.job_posting_id}`} title="Open the job with its notepad (Cmd-click: new browser tab)">Open</a>
+                        <button className="small" title="Copy an interview-prep prompt for any LLM" onClick={() => copyPrep(a)}>
+                          Prep
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {isOpen && (
@@ -400,7 +406,7 @@ function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied,
             onChange={(e) => onApplied(e.target.value)} /></label>
         </div>
         {children}
-        <h3>Notes</h3>
+        <h3>Application notes <a className="h3-link" href={`#job/${app.job_posting_id}`}>Job notepad →</a></h3>
         <textarea defaultValue={app.notes ?? ""} rows={3} placeholder="Contact, salary discussed, next step…"
                   onBlur={(e) => onNotes(e.target.value)} />
         <JobDescription jd={app.jd_snapshot} onSave={onJd} />

@@ -246,6 +246,9 @@ function Card({ p, tab, onChange, onGone, onError, account }: {
         {p.triage_status === "skipped" && (
           <button disabled={busy} onClick={() => triage("reset")}>Undo skip</button>
         )}
+        <a className="link-button" href={`#job/${p.id}`} title="Open the job with its notepad (Cmd-click: new browser tab)">
+          {p.notes ? "📝 Notes" : "Open"}
+        </a>
         <button className="link danger" disabled={busy} onClick={del}>Delete</button>
       </div>
       {skipping && (
@@ -262,7 +265,7 @@ function Card({ p, tab, onChange, onGone, onError, account }: {
 }
 
 /** Why it ranked: skill match, missing skills, language and experience requirements. */
-function Why({ p }: { p: Posting }) {
+export function Why({ p }: { p: Posting }) {
   if (p.extraction_status !== "done") {
     return p.extraction_status === "skipped" ? null : <div className="why muted">Not analysed yet</div>;
   }
@@ -318,11 +321,11 @@ function Editable({ value, placeholder, onSave }: {
   );
 }
 
-function label(reason: string) {
+export function label(reason: string) {
   return SKIP_REASONS.find((r) => r.key === reason)?.label ?? reason;
 }
 
-function fmtDate(iso: string) {
+export function fmtDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 }
 

@@ -1,3 +1,4 @@
+import { notesForPrompt } from "./notes";
 import { supabase } from "./supabase";
 
 // Interview-prep prompt: everything an LLM needs, copied to the clipboard in one tap.
@@ -14,6 +15,7 @@ type PrepInput = {
   appliedAt: string | null;
   jd: string | null;
   resumeId: string | null;
+  notes?: string | null;   // the job's notepad (labelled sections)
 };
 
 const fmt = (iso: string | null, time = false) =>
@@ -62,6 +64,7 @@ export async function buildPrepPrompt(a: PrepInput): Promise<string> {
       ? `Subject: ${em.subject ?? ""}\nReceived: ${fmt(em.received_at, true)}\n\n${em.body_text}`
       : "(no interview email on record)"),
     section("Job description", a.jd || "(no job description stored — paste it here)"),
+    ...(a.notes ? [section("My notes for this job", notesForPrompt(a.notes)!)] : []),
     section(`My CV${cv ? ` (${cv.uid}${cv.label ? `, ${cv.label}` : ""})` : ""}`, cv?.extracted_text
       || "(CV text not stored — attach or paste the CV I sent here)"),
   ].join("\n");

@@ -39,6 +39,7 @@ type App = {
     source: string;
     apply_url: string | null;
     source_url: string | null;
+    posted_date: string | null;
   };
 };
 
@@ -97,7 +98,7 @@ export default function Applications() {
     const { data, error } = await supabase
       .from("applications")
       .select("id,job_posting_id,applied_at,created_at,notes,jd_snapshot,resume_id,cover_letter_file_id," +
-              "job_postings(title,company_name,city,source,apply_url,source_url)")
+              "job_postings(title,company_name,city,source,apply_url,source_url,posted_date)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) return setError(error.message);
@@ -156,7 +157,7 @@ export default function Applications() {
   }
 
   // -- corrections and deletion ------------------------------------------------------
-  async function savePosting(app: App, fields: Partial<Pick<App["job_postings"], "company_name" | "title" | "city">>) {
+  async function savePosting(app: App, fields: Partial<Pick<App["job_postings"], "company_name" | "title" | "city" | "posted_date">>) {
     const { error } = await supabase.from("job_postings").update(fields).eq("id", app.job_posting_id);
     if (error) return setError(error.message);
     setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, job_postings: { ...a.job_postings, ...fields } } : a)));
@@ -355,7 +356,7 @@ function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied,
   onNotes: (n: string) => void;
   onJd: (jd: string | null) => void;
   onEventDate: (e: Event, iso: string) => void;
-  onPosting: (f: Partial<Pick<App["job_postings"], "company_name" | "title" | "city">>) => void;
+  onPosting: (f: Partial<Pick<App["job_postings"], "company_name" | "title" | "city" | "posted_date">>) => void;
   onApplied: (day: string) => void;
   onDelete: () => void;
   children?: React.ReactNode;
@@ -393,6 +394,8 @@ function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied,
             onBlur={(e) => e.target.value.trim() && e.target.value !== app.job_postings.title && onPosting({ title: e.target.value.trim() })} /></label>
           <label>Location<input defaultValue={app.job_postings.city ?? ""} placeholder="City"
             onBlur={(e) => e.target.value !== (app.job_postings.city ?? "") && onPosting({ city: e.target.value.trim() || null as unknown as string })} /></label>
+          <label>Posted on<input type="date" defaultValue={app.job_postings.posted_date ?? ""} max={toDay(new Date().toISOString())}
+            onChange={(e) => onPosting({ posted_date: e.target.value || null as unknown as string })} /></label>
           <label>Applied on<input type="date" defaultValue={app.applied_at ? toDay(app.applied_at) : ""} max={toDay(new Date().toISOString())}
             onChange={(e) => onApplied(e.target.value)} /></label>
         </div>

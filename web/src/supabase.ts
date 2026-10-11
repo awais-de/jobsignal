@@ -53,9 +53,12 @@ export type Posting = {
   rank_details: { matched?: string[]; missing?: string[]; track?: string | null } | null;
   german_level: string | null;
   required_years: number | null;
+  seniority: string | null;
+  must_have_skills: string[] | null;
+  nice_to_have_skills: string[] | null;
 };
 
 export const POSTING_COLUMNS =
   "id,source,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
   "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited," +
-  "extraction_status,rank_score,rank_details,german_level,required_years";
+  "extraction_status,rank_score,rank_details,german_level,required_years,seniority,must_have_skills,nice_to_have_skills";

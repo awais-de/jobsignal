@@ -284,3 +284,5 @@ header { flex-wrap: wrap; }
 .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-now { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .run-msg { font-size: 13px; color: var(--muted); }
+.filters .skills-input { flex: 0 1 190px; min-width: 140px; font: inherit; font-size: 14px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }

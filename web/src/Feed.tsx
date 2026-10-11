@@ -40,13 +40,19 @@ function dayLabel(key: string): string {
 const byRank = (a: Posting, b: Posting) =>
   (b.rank_score ?? -1) - (a.rank_score ?? -1) || (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
 
+// Group by the date the job was posted; the day it was found only when the source gives no date
+// (a newly watched company's existing jobs keep their real dates).
+const postedKey = (r: Posting) => r.posted_date ?? dayKey(r.first_seen_at);
+
 function groupByDay(rows: Posting[]): [string, Posting[]][] {
   const groups = new Map<string, Posting[]>();
   for (const r of rows) {
-    const k = dayKey(r.first_seen_at);
+    const k = postedKey(r);
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
-  return [...groups.entries()].map(([k, items]) => [k, items.sort(byRank)]);
+  return [...groups.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))          // newest posting date first
+    .map(([k, items]) => [k, items.sort(byRank)]);
 }
 
 export default function Feed() {
@@ -138,7 +144,7 @@ export default function Feed() {
         })
       )}
       {rows !== null && rows.length > 0 && (
-        <p className="empty">Showing the last {HISTORY_DAYS} days.</p>
+        <p className="empty">Jobs found in the last {HISTORY_DAYS} days, grouped by the date they were posted.</p>
       )}
     </>
   );

@@ -39,6 +39,8 @@ class Candidate:
     repost_of: str | None = None         # canonical row id when this is a repost
     duplicate_of: str | None = None      # canonical row id when the same job is already stored
     filter_reasons: list[str] = field(default_factory=list)
+    # Stored rows from weaker sources this one replaces once it passes the filters (spec 7.3.2).
+    supersedes: list[str] = field(default_factory=list)
     # Extraction and ranking columns (spec 7.5, 7.9), written with the row.
     enrichment: dict[str, Any] = field(default_factory=dict)
 

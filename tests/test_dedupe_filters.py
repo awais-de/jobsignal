@@ -132,3 +132,59 @@ def test_watchlist_filter_modes(title, mode, country, reason):
 
 def test_watched_jobs_skip_freshness():
     assert run([watched("Data Engineer", "all", posted=date(2026, 8, 1))])[0].passed
+
+
+# -- cross-source merging (spec 7.3.2) ----------------------------------------------
+def stored_from(source, id="S1", days_ago=1, triage="new", surfaced=None, has_desc=True, filter_status="passed"):
+    s = stored(id=id, days_ago=days_ago, triage=triage)
+    s.source, s.surfaced_on, s.has_description, s.filter_status = source, surfaced, has_desc, filter_status
+    return s
+
+
+def test_better_source_supersedes_untriaged_weaker_row():
+    c = run([raw(job_id="NEW", source="careers")], [stored_from("ba_api")])[0]
+    assert c.passed and c.supersedes == ["S1"]
+    assert "no_digest" not in c.raw.source_data
+
+
+def test_superseding_an_emailed_row_is_not_emailed_again():
+    c = run([raw(job_id="NEW", source="careers")], [stored_from("ba_api", surfaced="2026-10-09")])[0]
+    assert c.raw.source_data.get("no_digest") is True
+
+
+def test_weaker_source_is_duplicate_and_donates_description():
+    cands = build_candidates([raw(job_id="NEW", source="arbeitnow")])
+    cands[0].raw.description = "Full text"
+    actions = apply_dedupe(cands, [stored_from("careers", has_desc=False)], now=NOW)
+    assert cands[0].filter_reasons == ["duplicate"]
+    assert actions.enrich == [("S1", "Full text")]
+
+
+def test_better_source_without_description_inherits():
+    cands = build_candidates([raw(job_id="NEW", source="careers")])
+    actions = apply_dedupe(cands, [stored_from("ba_api", has_desc=True)], now=NOW)
+    assert actions.inherit == [(cands[0], "S1")]
+
+
+@pytest.mark.parametrize("kw", [{"triage": "applied"}, {"filter_status": "passed", "triage": "applied"}])
+def test_triaged_rows_are_never_replaced(kw):
+    c = run([raw(job_id="NEW", source="careers")], [stored_from("ba_api", **kw)])[0]
+    assert c.filter_reasons == ["duplicate"] and c.supersedes == []
+
+
+def test_manual_entry_always_wins():
+    c = run([raw(job_id="NEW", source="careers")], [stored_from("manual", triage="applied")])[0]
+    assert c.filter_reasons == ["duplicate"]
+
+
+def test_rejected_sibling_is_not_canonical():
+    # e.g. the Arbeitsagentur copy failed the title list, the company-site copy (watch mode) may pass
+    c = run([raw(job_id="NEW", source="careers")], [stored_from("ba_api", filter_status="rejected")])[0]
+    assert c.passed and c.supersedes == []
+
+
+def test_in_run_better_source_wins():
+    weak, strong = raw(job_id="A", source="arbeitnow"), raw(job_id="B", source="careers")
+    weak.description = "text from aggregator"
+    a, b = run([weak, strong])
+    assert a.filter_reasons == ["duplicate"] and b.passed and b.raw.description == "text from aggregator"

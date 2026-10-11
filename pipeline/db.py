@@ -74,7 +74,8 @@ class Database:
 
     # -- postings -------------------------------------------------------------
     def stored_for(self, candidates: list[Candidate]) -> list[StoredPosting]:
-        cols = "id,source,source_job_id,dedupe_hash,first_seen_at,triage_status,deleted_at"
+        cols = ("id,source,source_job_id,dedupe_hash,first_seen_at,triage_status,deleted_at,"
+                "filter_status,surfaced_on,description_missing")
         found: dict[str, StoredPosting] = {}
         ids = sorted({c.raw.source_job_id for c in candidates if c.raw.source_job_id})
         hashes = sorted({c.dedupe_hash for c in candidates})
@@ -86,6 +87,8 @@ class Database:
                         id=r["id"], source=r["source"], source_job_id=r["source_job_id"],
                         dedupe_hash=r["dedupe_hash"], first_seen_at=_ts(r["first_seen_at"]),
                         triage_status=r["triage_status"], deleted_at=_ts(r["deleted_at"]) if r["deleted_at"] else None,
+                        filter_status=r["filter_status"], surfaced_on=r["surfaced_on"],
+                        has_description=not r["description_missing"],
                     )
         return list(found.values())
 
@@ -114,6 +117,26 @@ class Database:
                                  params={"select": "id,source_job_id,dedupe_hash"})
                 for r in rows:
                     out[r["source_job_id"] or r["dedupe_hash"]] = r["id"]
+        return out
+
+    # -- cross-source merging (spec 7.3.2) ---------------------------------------------
+    def supersede(self, ids: list[str]) -> None:
+        for chunk in _chunks(sorted(set(ids)), BATCH):
+            self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})", "triage_status": "eq.new"},
+                      json={"filter_status": "rejected", "filter_reasons": ["superseded"]})
+
+    def add_description(self, posting_id: str, description: str) -> None:
+        """A weaker duplicate's description for a canonical row that had none; re-extracted next."""
+        self._req("PATCH", "/job_postings", params={"id": f"eq.{posting_id}", "description_missing": "eq.true"},
+                  json={"description": description, "description_missing": False, "extraction_status": "pending"})
+
+    def descriptions(self, ids: list[str]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for chunk in _chunks(sorted(set(ids)), BATCH):
+            for r in self._req("GET", "/job_postings", params={"select": "id,description",
+                                                                "id": f"in.({','.join(chunk)})"}):
+                if r["description"]:
+                    out[r["id"]] = r["description"]
         return out
 
     def touch(self, ids: list[str]) -> None:

@@ -9,6 +9,13 @@ ba_api:
   request_delay_seconds: 0.5   # polite pacing between requests
   max_detail_fetches: 150      # per run; only for postings that passed the filters
 
+arbeitnow:
+  # Free public API, no key (terms: don't abuse; link back appreciated). Europe-wide, newest first.
+  enabled: true
+  published_within_days: 2     # pages are read only until jobs are older than this
+  max_pages: 5                 # 325 jobs per page
+  request_delay_seconds: 1.0
+
 careers:
   # Company watchlist (the companies themselves are in the private profile under `watchlist`).
   request_delay_seconds: 1.0       # polite pacing per request

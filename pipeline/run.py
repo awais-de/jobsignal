@@ -36,6 +36,7 @@ from pipeline.filters import HardFilters
 from pipeline.models import Candidate, RawPosting
 from pipeline.normalize import dedupe_hash
 from pipeline.extract.page import STAGE as PAGE_STAGE, make_page_extractor
+from pipeline.sources.arbeitnow import ArbeitnowSource
 from pipeline.sources.ba import BundesagenturSource
 from pipeline.sources.careers import CareersSource
 
@@ -124,6 +125,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     fetchers: list[tuple[str, str, Any]] = []        # (source key for DB, label for public logs, fetch)
     if ba_cfg.get("enabled", True):
         fetchers.append((ba.name, ba.name, lambda: ba.fetch(profile["search_terms"])))
+    an_cfg = sources_cfg.get("arbeitnow", {})
+    if an_cfg.get("enabled", False):
+        arbeitnow = ArbeitnowSource(an_cfg)
+        fetchers.append((arbeitnow.name, arbeitnow.name, lambda: arbeitnow.fetch(now)))
     # Company watchlist (private profile): one isolated source per company.
     llm_cfg = load_config("llm.yaml")
     page_router = build_router(llm_cfg, PAGE_STAGE, cache_get=db.cache_get if db else None)
@@ -156,7 +161,12 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             db.update_posting(r["id"], {"dedupe_hash": dedupe_hash(r["company_name"], r["title"], r["city"])})
     candidates = build_candidates(raws)
     stored = db.stored_for(candidates) if db else []
-    apply_dedupe(candidates, stored, now=now)
+    merge = apply_dedupe(candidates, stored, now=now)
+    # A better source without a description takes the weaker stored copy's (spec 7.3.2).
+    if merge.inherit and db:
+        texts = db.descriptions([sid for _, sid in merge.inherit])
+        for c, sid in merge.inherit:
+            c.raw.description = c.raw.description or texts.get(sid)
     # Known watchlist pages arrive as stubs (not refetched); they only refresh last_seen_at.
     candidates = [c for c in candidates if not (c.raw.source_data.get("stub") and c.is_new)]
 
@@ -209,7 +219,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         reverse=True,
     )
     # A watched company's first load goes to the app timeline, not the email (owner decision 2026-10-11).
-    surface = [c for c in surface if not c.raw.source_data.get("initial_load")]
+    surface = [c for c in surface if not c.raw.source_data.get("initial_load")
+               and not c.raw.source_data.get("no_digest")]           # superseded copy was already emailed
     min_score = float(profile["feed"].get("min_rank_score", 0))
     surface = [c for c in surface if (c.enrichment.get("rank_score") or 0) >= min_score
                or c.enrichment.get("rank_score") is None][: int(profile["feed"].get("max_items", 10))]
@@ -218,6 +229,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         ids = db.insert_postings(new)
         db.touch(known_ids)
         db.record_reposts(repost_ids)
+        # Cross-source merging (spec 7.3.2): retire weaker copies only for rows that passed.
+        db.supersede([sid for c in passed for sid in c.supersedes])
+        for sid, text in merge.enrich:
+            db.add_description(sid, text)
         surface_ids = [ids[c.raw.source_job_id or c.dedupe_hash] for c in surface]
         key = lambda c: (f"careers:{c.raw.company_name}" if c.raw.source == "careers" else c.raw.source)  # noqa: E731
         inserted_by_source = Counter(key(c) for c in new)

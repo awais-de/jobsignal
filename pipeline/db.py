@@ -174,6 +174,53 @@ class Database:
         for chunk in _chunks(rows, BATCH):
             self._req("POST", "/llm_usage", json=chunk)
 
+    # -- companies (spec 6.2, 7.2) -------------------------------------------------------
+    def company_count(self) -> int:
+        resp = self.client.get("/companies", params={"select": "id", "limit": 1},
+                               headers={"Prefer": "count=exact", "Range": "0-0"})
+        return int(resp.headers.get("content-range", "*/0").split("/")[-1] or 0)
+
+    def all_postings_for_seed(self) -> list[dict[str, Any]]:
+        out, offset = [], 0
+        while True:
+            rows = self._req("GET", "/job_postings", params={
+                "select": "company_name,source,country,filter_status,poster_type", "country": "eq.DE",
+                "source": "in.(ba_api,arbeitnow,careers)", "order": "id", "limit": 1000, "offset": offset})
+            out.extend(rows)
+            if len(rows) < 1000:
+                return out
+            offset += 1000
+
+    def register_companies(self, rows: list[dict[str, Any]]) -> None:
+        """Insert unseen employers (unique on name_normalized); mark relevant ones."""
+        for chunk in _chunks(rows, 200):
+            self._req("POST", "/companies?on_conflict=name_normalized", json=chunk,
+                      headers={"Prefer": "resolution=ignore-duplicates,return=minimal"})
+        relevant = sorted({r["name_normalized"] for r in rows if r.get("relevant")})
+        for chunk in _chunks(relevant, BATCH):
+            self._req("PATCH", "/companies", params={"name_normalized": f"in.({_in_list(chunk)})", "relevant": "eq.false"},
+                      json={"relevant": True})
+
+    def companies_to_probe(self, limit: int, now: datetime) -> list[dict[str, Any]]:
+        pending = self._req("GET", "/companies", params={
+            "select": "id,name", "discovery_status": "eq.pending", "is_agency": "eq.false", "deleted_at": "is.null",
+            "order": "relevant.desc,created_at.asc", "limit": limit})
+        if len(pending) >= limit:
+            return pending
+        retry = self._req("GET", "/companies", params={
+            "select": "id,name", "discovery_status": "eq.not_found", "is_agency": "eq.false",
+            "next_check_at": f"lte.{now.isoformat()}", "order": "relevant.desc,next_check_at.asc",
+            "limit": limit - len(pending)})
+        return pending + retry
+
+    def update_company(self, company_id: str, fields: dict[str, Any]) -> None:
+        self._req("PATCH", "/companies", params={"id": f"eq.{company_id}"}, json=fields)
+
+    def watched_companies(self) -> list[dict[str, Any]]:
+        return self._req("GET", "/companies", params={
+            "select": "id,name,ats,ats_token,filter_mode", "watch": "eq.true", "discovery_status": "eq.found",
+            "deleted_at": "is.null"})
+
     # -- tracking ---------------------------------------------------------------
     def expire_stale_applications(self, days: int) -> int:
         return int(self._req("POST", "/rpc/expire_stale_applications", json={"p_days": days}) or 0)
@@ -213,6 +260,7 @@ def _row(c: Candidate) -> dict[str, Any]:
         "poster_type": r.poster_type,
         "salary_text": r.salary_text,
         "source_data": r.source_data or None,
+        "company_id": r.source_data.get("company_id"),
         "filter_status": "passed" if c.passed else "rejected",
         "filter_reasons": c.filter_reasons or None,
         **c.enrichment,

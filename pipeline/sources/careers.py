@@ -27,6 +27,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 
 from pipeline.models import RawPosting
+from pipeline.sources.ats import ATS, feed_jobs
 
 log = logging.getLogger("jobsignal")
 
@@ -69,6 +70,8 @@ class CareersSource:
             out = self._cornerstone(company)
         elif technique == "career_page":
             out = self._career_page(company)
+        elif technique == "ats":
+            out = self._ats(company)
         else:
             raise ValueError(f"unknown technique {technique}")
         mode = company.get("filters", "watch")
@@ -76,7 +79,18 @@ class CareersSource:
             raise ValueError(f"unknown filters mode {mode}")
         for posting in out:
             posting.source_data["filter_mode"] = mode
+            if company.get("company_id"):
+                posting.source_data["company_id"] = company["company_id"]
         return out
+
+    # -- ats (discovered companies; spec 7.2) ----------------------------------------------
+    def _ats(self, company: dict[str, Any]) -> list[RawPosting]:
+        jobs = feed_jobs(ATS(self.client), company["ats"], company["token"], company)
+        ids = [p.source_job_id for p in jobs]
+        initial = not self.known_ids(ids) if ids else False
+        for p in jobs:
+            p.source_data["initial_load"] = initial
+        return jobs
 
     # -- career_page ----------------------------------------------------------------------
     def _career_page(self, company: dict[str, Any]) -> list[RawPosting]:

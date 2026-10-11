@@ -20,3 +20,14 @@ careers:
   # Company watchlist (the companies themselves are in the private profile under `watchlist`).
   request_delay_seconds: 1.0       # polite pacing per request
   max_new_pages_per_company: 120   # cap on new job pages fetched per company per run
+
+discovery:
+  # Company discovery (spec 7.2): employers seen with a job in Germany are probed on common ATS.
+  enabled: true
+  companies_per_run: 50        # STARTING VALUE: ~1 s per company (systems asked in parallel)
+  max_seconds_per_run: 300     # hard time budget for probing
+  retry_not_found_days: 30     # companies without a verified ATS are retried monthly
+  # Staffing agencies post for other employers: never probed (spec 7.8). Lower-case substrings.
+  agencies: [hays, randstad, adecco, manpower, experis, ferchau, brunel, gulp, amadeus fire, robert half,
+             michael page, page personnel, dis ag, persona service, orizon, tempton, jobtimum, akkodis,
+             modis, solcom, etengo, freelancermap, talentschuppen, piening, timepartner, i.k. hofmann]

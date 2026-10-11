@@ -1,0 +1,99 @@
+"""Discovery and ATS adapters against invented feeds (spec 13.1: no real company data)."""
+
+import httpx
+import pytest
+
+from pipeline.discovery import probe_company, same_company, slug_variants, watch_entry
+from pipeline.sources.ats import ATS, feed_jobs
+
+PERSONIO_XML = """<?xml version="1.0"?><workzag-jobs><position><id>42</id><subcompany>Other Firm AG</subcompany>
+<office>München</office><name>Data Engineer (m/w/d)</name><employmentType>permanent</employmentType>
+<schedule>full-time</schedule><createdAt>2026-10-05T10:00:00+00:00</createdAt>
+<jobDescriptions><jobDescription><name>Aufgaben</name><value><![CDATA[<p>Pipelines mit <b>dbt</b></p>]]></value>
+</jobDescription></jobDescriptions></position></workzag-jobs>"""
+
+
+def api(routes):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = routes.get(str(request.url).split("?")[0])
+        if body is None:
+            return httpx.Response(404)
+        return httpx.Response(200, text=body) if isinstance(body, str) else httpx.Response(200, json=body)
+    return ATS(httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_slug_variants():
+    assert slug_variants("Beispiel Daten GmbH & Co. KG") == ["beispiel-daten", "beispieldaten", "beispiel"]
+    assert slug_variants("Müller Technik GmbH") == ["mueller-technik", "muellertechnik", "mueller"]
+
+
+@pytest.mark.parametrize("name, ats_name, ok", [
+    ("Beispiel Daten GmbH", "Jobs bei Beispiel Daten", True),
+    ("Beispiel Daten GmbH", "Beispiel Werkzeuge", False),     # two-word names need both words
+    ("Beispiel Daten GmbH", "Other Firm AG", False),
+    ("Musterwerk", "Musterwerk GmbH", True),
+])
+def test_same_company(name, ats_name, ok):
+    assert same_company(name, ats_name) is ok
+
+
+def test_probe_needs_jobs_and_matching_name():
+    # Personio feed for the slug exists, but the page names another company: rejected.
+    wrong = api({"https://beispiel-daten.jobs.personio.de/xml": PERSONIO_XML,
+                 "https://beispiel-daten.jobs.personio.de/": "<title>Jobs bei Anderswo GmbH</title>"})
+    assert probe_company("Beispiel Daten GmbH", wrong) is None
+    right = api({"https://beispiel-daten.jobs.personio.de/xml": PERSONIO_XML,
+                 "https://beispiel-daten.jobs.personio.de/": "<title>Jobs bei Beispiel Daten</title>"})
+    f = probe_company("Beispiel Daten GmbH", right)
+    assert (f.ats, f.token, f.jobs) == ("personio", "beispiel-daten", 1)
+
+
+def test_empty_board_is_not_a_hit():
+    a = api({"https://apply.workable.com/api/v1/widget/accounts/musterwerk": {"name": "Musterwerk", "jobs": []}})
+    assert probe_company("Musterwerk", a) is None
+
+
+def test_personio_feed_uses_watched_name_not_subcompany():
+    a = api({"https://beispiel-daten.jobs.personio.de/xml": PERSONIO_XML})
+    [p] = feed_jobs(a, "personio", "beispiel-daten", {"name": "Beispiel Daten GmbH"})
+    assert p.company_name == "Beispiel Daten GmbH"
+    assert (p.title, p.city, p.country, p.contract_type) == ("Data Engineer (m/w/d)", "München", "DE", "full_time")
+    assert "dbt" in p.description and str(p.posted_date) == "2026-10-05"
+    assert p.source_job_id == "personio:beispiel-daten:42"
+
+
+def test_greenhouse_and_ashby_and_recruitee_feeds():
+    a = api({
+        "https://boards-api.greenhouse.io/v1/boards/bd/jobs": {"jobs": [{
+            "id": 1, "title": "Analytics Engineer", "location": {"name": "Berlin, Germany"},
+            "content": "&lt;p&gt;SQL&lt;/p&gt;", "first_published": "2026-10-01T09:00:00-04:00",
+            "absolute_url": "https://example.org/1"}]},
+        "https://api.ashbyhq.com/posting-api/job-board/bd": {"jobs": [{
+            "id": "a", "title": "ML Engineer", "location": "Remote", "isListed": True, "isRemote": True,
+            "address": {"postalAddress": {"addressCountry": "Germany", "addressLocality": "Hamburg"}},
+            "descriptionPlain": "Python", "publishedAt": "2026-10-02T10:00:00Z", "jobUrl": "https://example.org/a"}]},
+        "https://bd.recruitee.com/api/offers/": {"offers": [{
+            "id": 9, "title": "BI Developer", "city": "Köln", "country_code": "DE", "description": "<p>Power BI</p>",
+            "requirements": "<p>DAX</p>", "created_at": "2026-10-03 08:00:00 UTC", "employment_type_code": "fulltime_permanent",
+            "careers_url": "https://example.org/9"}]},
+    })
+    gh = feed_jobs(a, "greenhouse", "bd", {"name": "BD"})[0]
+    assert (gh.country, gh.description, str(gh.posted_date)) == ("DE", "SQL", "2026-10-01")
+    ab = feed_jobs(a, "ashby", "bd", {"name": "BD"})[0]
+    assert (ab.city, ab.country, ab.remote_policy) == ("Hamburg", "DE", "remote")
+    rc = feed_jobs(a, "recruitee", "bd", {"name": "BD"})[0]
+    assert (rc.country, rc.contract_type, rc.description) == ("DE", "full_time", "Power BI\n\nDAX")
+
+
+def test_watch_entry():
+    sg = watch_entry({"id": "c1", "name": "BD", "ats": "softgarden", "ats_token": "bd", "filter_mode": "all"})
+    assert sg["technique"] == "career_page" and sg["url"] == "https://bd.softgarden.io/en/vacancies"
+    pe = watch_entry({"id": "c2", "name": "BD", "ats": "personio", "ats_token": "bd", "filter_mode": None})
+    assert (pe["technique"], pe["ats"], pe["token"], pe["filters"], pe["company_id"]) == ("ats", "personio", "bd", "all", "c2")
+
+
+@pytest.mark.parametrize("office, country", [("Ingelheim", "DE"), ("Boston, US", None), ("Wien", None),
+                                             ("München", "DE"), ("Remote", "DE")])
+def test_personio_offices_default_to_germany_unless_foreign(office, country):
+    a = api({"https://bd.jobs.personio.de/xml": PERSONIO_XML.replace("München", office)})
+    assert feed_jobs(a, "personio", "bd", {"name": "BD"})[0].country == country

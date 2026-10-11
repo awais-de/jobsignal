@@ -34,7 +34,9 @@ from pipeline.deliver import send_email
 from pipeline.digest import build_digest
 from pipeline.filters import HardFilters
 from pipeline.models import Candidate, RawPosting
-from pipeline.normalize import dedupe_hash
+from pipeline.discovery import probe_company, watch_entry
+from pipeline.normalize import dedupe_hash, normalize_company
+from pipeline.sources.ats import ATS
 from pipeline.extract.page import STAGE as PAGE_STAGE, make_page_extractor
 from pipeline.sources.arbeitnow import ArbeitnowSource
 from pipeline.sources.ba import BundesagenturSource
@@ -132,12 +134,18 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     # Company watchlist (private profile): one isolated source per company.
     llm_cfg = load_config("llm.yaml")
     page_router = build_router(llm_cfg, PAGE_STAGE, cache_get=db.cache_get if db else None)
+    # Watchlist = the owner's list (private profile) + companies found by discovery (spec 7.2).
+    watchlist = list(profile.get("watchlist") or [])
+    disc_cfg = sources_cfg.get("discovery", {})
+    if db and disc_cfg.get("enabled"):
+        named = {w["name"].lower() for w in watchlist}
+        watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named]
     careers = CareersSource(
-        profile.get("watchlist") or [], sources_cfg.get("careers", {}),
+        watchlist, sources_cfg.get("careers", {}),
         known_ids=(lambda ids: db.known_ids("careers", ids)) if db else (lambda ids: set()),
         page_extractor=make_page_extractor(page_router, llm_cfg["stages"][PAGE_STAGE]),
     )
-    for i, company in enumerate(profile.get("watchlist") or [], 1):
+    for i, company in enumerate(watchlist, 1):
         # Company names are private: the public log only says 'careers#N'.
         fetchers.append((f"careers:{company['name']}", f"careers#{i}", lambda c=company: careers.fetch_company(c)))
 
@@ -242,6 +250,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
         _flush_llm(enricher, db)
         _flush_router(page_router, db, PAGE_STAGE)
+        if disc_cfg.get("enabled"):
+            stats["discovery"] = _discover(db, candidates, disc_cfg, now)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
@@ -325,6 +335,55 @@ def backlog_only(profile: dict[str, Any], write: bool) -> int:
     errors = Counter(u["error"] for u in enricher.router.usage if u["error"])
     log.info("backlog: %s, llm_calls=%d, llm_errors=%s", counts, enricher.router.calls, dict(errors))
     return 0
+
+
+def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], now: datetime) -> dict[str, int]:
+    """Register employers seen with a job in Germany, then probe a few for an ATS (spec 7.2)."""
+    agencies = [a.lower() for a in cfg.get("agencies", [])]
+    is_agency = lambda name, poster: poster == "agency" or any(a in name.lower() for a in agencies)  # noqa: E731
+    counts: Counter[str] = Counter()
+
+    def rows_from(items):
+        rows: dict[str, dict[str, Any]] = {}
+        for name, source, country, passed, poster in items:
+            norm = normalize_company(name or "")
+            if not norm or country != "DE":
+                continue
+            r = rows.setdefault(norm, {"name": name, "name_normalized": norm, "discovered_from": source,
+                                       "is_agency": is_agency(name, poster), "relevant": False})
+            r["relevant"] = r["relevant"] or passed
+            if r["is_agency"]:
+                r["discovery_status"] = "skipped"
+        # PostgREST bulk inserts need identical keys in every row
+        for r in rows.values():
+            r.setdefault("discovery_status", "pending")
+        return list(rows.values())
+
+    if db.company_count() == 0:                       # one-off seed from everything stored so far
+        seed = db.all_postings_for_seed()
+        db.register_companies(rows_from((r["company_name"], r["source"], r["country"], r["filter_status"] == "passed",
+                                         r["poster_type"]) for r in seed))
+        counts["seeded_from_postings"] = len(seed)
+    db.register_companies(rows_from((c.raw.company_name, c.raw.source, c.raw.country, c.passed, c.raw.poster_type)
+                                    for c in candidates if c.is_new and not c.raw.source_data.get("stub")))
+
+    api = ATS(httpx.Client(headers={"User-Agent": "jobsignal/0.1 (personal job search)"}, timeout=6,
+                           follow_redirects=True))
+    deadline = time.monotonic() + float(cfg.get("max_seconds_per_run", 300))
+    for comp in db.companies_to_probe(int(cfg.get("companies_per_run", 20)), now):
+        if time.monotonic() > deadline:
+            break
+        found = probe_company(comp["name"], api)
+        if found:
+            db.update_company(comp["id"], {"discovery_status": "found", "ats": found.ats, "ats_token": found.token,
+                                           "verified_name": found.verified_name, "feed_type": "ats_feed",
+                                           "watch": True, "discovery_checked_at": now.isoformat()})
+            counts["found"] += 1
+        else:
+            db.update_company(comp["id"], {"discovery_status": "not_found", "discovery_checked_at": now.isoformat(),
+                                           "next_check_at": (now + timedelta(days=int(cfg.get("retry_not_found_days", 30)))).isoformat()})
+            counts["not_found"] += 1
+    return dict(counts)
 
 
 def _flush_llm(enricher: Enricher, db: Database) -> None:

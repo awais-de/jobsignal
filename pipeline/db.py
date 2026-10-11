@@ -89,6 +89,15 @@ class Database:
                     )
         return list(found.values())
 
+    def known_ids(self, source: str, ids: list[str]) -> set[str]:
+        """Which of these source_job_ids are already stored (lets sources skip fetching them)."""
+        found: set[str] = set()
+        for chunk in _chunks(sorted(set(ids)), BATCH):
+            rows = self._req("GET", "/job_postings", params={
+                "select": "source_job_id", "source": f"eq.{source}", "source_job_id": f"in.({_in_list(chunk)})"})
+            found.update(r["source_job_id"] for r in rows)
+        return found
+
     def insert_postings(self, candidates: list[Candidate]) -> dict[str, str]:
         """Insert new candidates; returns {source_job_id or hash: id}."""
         out: dict[str, str] = {}

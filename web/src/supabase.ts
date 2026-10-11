@@ -22,6 +22,7 @@ export const SKIP_REASONS: { key: string; label: string }[] = [
 // Display names for job_postings.source. Add an entry when a new source is added.
 export const SOURCE_LABELS: Record<string, string> = {
   ba_api: "Arbeitsagentur",
+  careers: "Company site",
   manual: "Added by hand",
   sample: "Sample",
 };

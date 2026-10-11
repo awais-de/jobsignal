@@ -24,7 +24,11 @@ class HardFilters:
 
     def reason(self, c: Candidate) -> str | None:
         raw = c.raw
-        if not any(p.search(raw.title) for p in self.allow):
+        # Watched companies (owner decision 2026-10-11): every role passes the title allow-list;
+        # the block list (Werkstudent, internship, thesis, ...) still applies. A job link that
+        # wasn't there yesterday is new by definition, so the freshness window doesn't apply.
+        watched = raw.source == "careers"
+        if not watched and not any(p.search(raw.title) for p in self.allow):
             return "title_not_allowed"
         if any(p.search(raw.title) for p in self.block):
             return "title_blocked"
@@ -32,7 +36,7 @@ class HardFilters:
             return "location"
         if raw.contract_type and raw.contract_type not in self.contract_types:
             return "contract_type"
-        if not self._fresh(raw.posted_date):
+        if not watched and not self._fresh(raw.posted_date):
             return "not_fresh"
         if self.exclude_agencies and raw.poster_type == "agency":
             return "agency"

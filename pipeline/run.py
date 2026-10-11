@@ -35,7 +35,9 @@ from pipeline.digest import build_digest
 from pipeline.filters import HardFilters
 from pipeline.models import Candidate, RawPosting
 from pipeline.normalize import dedupe_hash
+from pipeline.extract.page import STAGE as PAGE_STAGE, make_page_extractor
 from pipeline.sources.ba import BundesagenturSource
+from pipeline.sources.careers import CareersSource
 
 log = logging.getLogger("jobsignal")
 
@@ -119,7 +121,22 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     raws: list[RawPosting] = []
     source_results: list[dict[str, Any]] = []
     failed_sources: list[str] = []
-    for source, fetch in ((ba.name, lambda: ba.fetch(profile["search_terms"])),) if ba_cfg.get("enabled", True) else ():
+    fetchers: list[tuple[str, str, Any]] = []        # (source key for DB, label for public logs, fetch)
+    if ba_cfg.get("enabled", True):
+        fetchers.append((ba.name, ba.name, lambda: ba.fetch(profile["search_terms"])))
+    # Company watchlist (private profile): one isolated source per company.
+    llm_cfg = load_config("llm.yaml")
+    page_router = build_router(llm_cfg, PAGE_STAGE, cache_get=db.cache_get if db else None)
+    careers = CareersSource(
+        profile.get("watchlist") or [], sources_cfg.get("careers", {}),
+        known_ids=(lambda ids: db.known_ids("careers", ids)) if db else (lambda ids: set()),
+        page_extractor=make_page_extractor(page_router, llm_cfg["stages"][PAGE_STAGE]),
+    )
+    for i, company in enumerate(profile.get("watchlist") or [], 1):
+        # Company names are private: the public log only says 'careers#N'.
+        fetchers.append((f"careers:{company['name']}", f"careers#{i}", lambda c=company: careers.fetch_company(c)))
+
+    for source, label, fetch in fetchers:
         t0 = time.monotonic()
         try:
             got = fetch()
@@ -127,10 +144,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             source_results.append({"source": source, "status": "success" if got else "empty",
                                    "fetched": len(got), "error": None, "ms": _ms(t0)})
         except Exception as exc:  # noqa: BLE001
-            failed_sources.append(source)
+            failed_sources.append(label)
             source_results.append({"source": source, "status": "failed", "fetched": 0,
                                    "error": type(exc).__name__, "ms": _ms(t0)})
-            log.warning("source %s failed: %s", source, type(exc).__name__)
+            log.warning("source %s failed: %s", label, type(exc).__name__)
 
     # 2. dedupe (hand-added postings first get their real hash, so a job applied to by hand
     #    isn't surfaced again when a source lists it)
@@ -140,6 +157,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     candidates = build_candidates(raws)
     stored = db.stored_for(candidates) if db else []
     apply_dedupe(candidates, stored, now=now)
+    # Known watchlist pages arrive as stubs (not refetched); they only refresh last_seen_at.
+    candidates = [c for c in candidates if not (c.raw.source_data.get("stub") and c.is_new)]
 
     # 3. hard filters
     first_run = not db.has_successful_run() if db else True
@@ -189,6 +208,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                        c.raw.posted_date or now.date()),
         reverse=True,
     )
+    # A watched company's first load goes to the app timeline, not the email (owner decision 2026-10-11).
+    surface = [c for c in surface if not c.raw.source_data.get("initial_load")]
     min_score = float(profile["feed"].get("min_rank_score", 0))
     surface = [c for c in surface if (c.enrichment.get("rank_score") or 0) >= min_score
                or c.enrichment.get("rank_score") is None][: int(profile["feed"].get("max_items", 10))]
@@ -198,12 +219,14 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         db.touch(known_ids)
         db.record_reposts(repost_ids)
         surface_ids = [ids[c.raw.source_job_id or c.dedupe_hash] for c in surface]
-        inserted_by_source = Counter(c.raw.source for c in new)
-        updated_by_source = Counter(c.raw.source for c in candidates if c.existing_id)
+        key = lambda c: (f"careers:{c.raw.company_name}" if c.raw.source == "careers" else c.raw.source)  # noqa: E731
+        inserted_by_source = Counter(key(c) for c in new)
+        updated_by_source = Counter(key(c) for c in candidates if c.existing_id)
         for r in source_results:
             db.record_source_run(run_id, r["source"], r["status"], r["fetched"],
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
         _flush_llm(enricher, db)
+        _flush_router(page_router, db, PAGE_STAGE)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
@@ -288,9 +311,12 @@ def backlog_only(profile: dict[str, Any], write: bool) -> int:
 
 
 def _flush_llm(enricher: Enricher, db: Database) -> None:
-    router = enricher.router
+    _flush_router(enricher.router, db, STAGE)
+
+
+def _flush_router(router, db: Database, stage: str) -> None:
     if router.new_cache:
-        db.cache_put(router.new_cache, STAGE)
+        db.cache_put(router.new_cache, stage)
     if router.usage:
         db.record_llm_usage(router.usage)
 

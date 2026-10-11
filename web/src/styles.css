@@ -286,3 +286,6 @@ header { flex-wrap: wrap; }
 .run-msg { font-size: 13px; color: var(--muted); }
 .filters .skills-input { flex: 0 1 190px; min-width: 140px; font: inherit; font-size: 14px; color: var(--text);
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+
+.source-careers { background: #dafbe1; color: #116329; }
+@media (prefers-color-scheme: dark) { .source-careers { background: #033a16; color: #7ee787; } }

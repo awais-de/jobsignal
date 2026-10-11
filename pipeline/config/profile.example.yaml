@@ -7,6 +7,12 @@ search_terms:                    # free-text queries for the Bundesagentur searc
 
 exclude_agencies: false
 
+watchlist:                       # companies checked on every run
+  - name: 'Beispiel Daten GmbH'
+    technique: career_page        # careers page or sitemap.xml → job links → JSON-LD (LLM fallback)
+    url: 'https://careers.example.org/jobs'
+    link_pattern: '/jobs/\d+'
+
 titles:
   allow:
     - 'data engineer'

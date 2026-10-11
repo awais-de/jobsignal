@@ -18,3 +18,12 @@ stages:
       - { provider: groq,   model: 'openai/gpt-oss-120b' }
       - { provider: groq,   model: 'openai/gpt-oss-20b' }
       - { provider: gemini, model: 'gemini-3.5-flash-lite' }
+
+  page_extraction:
+    # Job pages without JSON-LD (spec 7.1 tier 3, technique 2): is it a job, and its title/location.
+    prompt_version: 'page-v1'
+    max_calls_per_run: 30
+    max_input_chars: 8000
+    providers:
+      - { provider: groq,   model: 'openai/gpt-oss-20b' }
+      - { provider: groq,   model: 'openai/gpt-oss-120b' }

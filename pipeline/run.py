@@ -191,7 +191,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         c.enrichment = cols
         c.raw.remote_policy = cols.get("remote_policy", c.raw.remote_policy)
         c.raw.salary_text = cols.get("salary_text", c.raw.salary_text)
-        if reason:
+        if reason and c.raw.source_data.get("filter_mode") != "none":
             c.filter_reasons.append(reason)
     dealbroken = Counter(c.filter_reasons[0] for c in passed if not c.passed)
     passed = [c for c in passed if c.passed]
@@ -288,8 +288,10 @@ def _process_backlog(enricher: Enricher, db: Database, write: bool, now: datetim
             break
         cols, reason = enricher.run(r["title"], r["description"], source_contract=r["contract_type"],
                                     remote_policy=r["remote_policy"], salary_text=r["salary_text"])
-        if reason:
+        if reason and (r.get("source_data") or {}).get("filter_mode") != "none":
             cols.update(filter_status="rejected", filter_reasons=[reason])
+        else:
+            reason = None
         counts["rejected" if reason else cols["extraction_status"]] += 1
         if write:
             db.update_posting(r["id"], cols)

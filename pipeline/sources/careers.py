@@ -35,6 +35,11 @@ UA = "Mozilla/5.0 (compatible; jobsignal/0.1; personal job search; +https://gith
 COUNTRY_ISO = {"germany": "DE", "deutschland": "DE", "de": "DE", "austria": "AT", "österreich": "AT",
                "switzerland": "CH", "schweiz": "CH", "united kingdom": "GB", "uk": "GB", "gb": "GB",
                "united states": "US", "usa": "US", "us": "US", "france": "FR", "fr": "FR"}
+# Per-company filter mode (profile watchlist `filters:`):
+#   all   - the owner's normal filters (title list, block list, location, dealbreakers)
+#   watch - every title except the block list; location and dealbreakers apply (default)
+#   none  - no filters at all: every job, every day
+FILTER_MODES = ("all", "watch", "none")
 EMPLOYMENT = {"FULL_TIME": "full_time", "PART_TIME": "part_time", "INTERN": "internship",
               "CONTRACTOR": "freelance"}
 
@@ -61,10 +66,17 @@ class CareersSource:
     def fetch_company(self, company: dict[str, Any]) -> list[RawPosting]:
         technique = company.get("technique", "career_page")
         if technique == "cornerstone":
-            return self._cornerstone(company)
-        if technique == "career_page":
-            return self._career_page(company)
-        raise ValueError(f"unknown technique {technique}")
+            out = self._cornerstone(company)
+        elif technique == "career_page":
+            out = self._career_page(company)
+        else:
+            raise ValueError(f"unknown technique {technique}")
+        mode = company.get("filters", "watch")
+        if mode not in FILTER_MODES:
+            raise ValueError(f"unknown filters mode {mode}")
+        for posting in out:
+            posting.source_data["filter_mode"] = mode
+        return out
 
     # -- career_page ----------------------------------------------------------------------
     def _career_page(self, company: dict[str, Any]) -> list[RawPosting]:

@@ -24,11 +24,14 @@ class HardFilters:
 
     def reason(self, c: Candidate) -> str | None:
         raw = c.raw
-        # Watched companies (owner decision 2026-10-11): every role passes the title allow-list;
-        # the block list (Werkstudent, internship, thesis, ...) still applies. A job link that
-        # wasn't there yesterday is new by definition, so the freshness window doesn't apply.
+        # Watched companies (owner decisions 2026-10-11), per company: 'all' = normal filters,
+        # 'watch' = no title allow-list, 'none' = no filters. A job link that wasn't there
+        # yesterday is new by definition, so the freshness window never applies to them.
         watched = raw.source == "careers"
-        if not watched and not any(p.search(raw.title) for p in self.allow):
+        mode = raw.source_data.get("filter_mode", "watch") if watched else "all"
+        if mode == "none":
+            return None
+        if mode == "all" and not any(p.search(raw.title) for p in self.allow):
             return "title_not_allowed"
         if any(p.search(raw.title) for p in self.block):
             return "title_blocked"

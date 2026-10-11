@@ -128,7 +128,7 @@ class Database:
     def pending_extractions(self, since: datetime, limit: int) -> list[dict[str, Any]]:
         """Passed postings from earlier runs whose extraction hasn't succeeded yet."""
         return self._req("GET", "/job_postings", params={
-            "select": "id,title,description,contract_type,remote_policy,salary_text",
+            "select": "id,title,description,contract_type,remote_policy,salary_text,source_data",
             "filter_status": "eq.passed", "extraction_status": "in.(pending,failed)",
             "description": "not.is.null", "deleted_at": "is.null",
             "first_seen_at": f"gte.{since.isoformat()}", "order": "first_seen_at.desc", "limit": limit,

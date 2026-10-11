@@ -108,3 +108,27 @@ def test_freshness_window_edges():
 def test_undated_posting_held_back_on_first_run_only():
     assert run([raw(posted=None)], first_run=True)[0].filter_reasons == ["not_fresh"]
     assert run([raw(posted=None)], first_run=False)[0].passed
+
+
+# -- watched companies: per-company filter modes (owner decisions 2026-10-11) ---------
+def watched(title, mode, country="DE", posted=date(2026, 9, 1)):
+    r = raw(title=title, country=country, posted=posted, source="careers")
+    r.source_data["filter_mode"] = mode
+    return r
+
+
+@pytest.mark.parametrize("title, mode, country, reason", [
+    ("Sales Manager", "all", "DE", "title_not_allowed"),          # 'all': normal title list
+    ("Data Engineer", "all", "DE", None),
+    ("Sales Manager", "watch", "DE", None),                       # 'watch': no allow-list...
+    ("Werkstudent Data", "watch", "DE", "title_blocked"),         # ...but the block list applies
+    ("Data Engineer", "watch", "AT", "location"),
+    ("Werkstudent Marketing", "none", "AT", None),                # 'none': no filters at all
+])
+def test_watchlist_filter_modes(title, mode, country, reason):
+    c = run([watched(title, mode, country)])[0]
+    assert (c.filter_reasons[0] if c.filter_reasons else None) == reason
+
+
+def test_watched_jobs_skip_freshness():
+    assert run([watched("Data Engineer", "all", posted=date(2026, 8, 1))])[0].passed

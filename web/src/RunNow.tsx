@@ -8,7 +8,9 @@ type Run = { started_at: string; status: "running" | "success" | "failed" };
 
 const ERRORS: Record<string, string> = {
   not_configured: "Not set up yet: the GitHub token is missing in Supabase.",
-  github_error: "GitHub refused the request. Check the token's permissions.",
+  github_error: "GitHub refused the request. Check the token's permissions (Actions: read and write).",
+  forbidden: "Your login has expired. Reload the page (or log in again) and retry.",
+  network: "Couldn't reach the server. Check your connection and retry.",
 };
 
 export default function RunNow() {
@@ -44,13 +46,20 @@ export default function RunNow() {
   async function trigger() {
     setBusy(true);
     setMsg(null);
+    // A tab left open for hours can hold an expired session; renew it first so the
+    // function sees a valid owner login.
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError) {
+      setBusy(false);
+      return setMsg(ERRORS.forbidden);
+    }
     const { data, error } = await supabase.functions.invoke("trigger-run", { body: {} });
     setBusy(false);
     let code = data?.error as string | undefined;
     if (error) {
       try { code = (await (error as { context?: Response }).context?.json())?.error; } catch { code = "network"; }
     }
-    if (code) return setMsg(ERRORS[code] ?? "Couldn't start the run.");
+    if (code) return setMsg(ERRORS[code] ?? `Couldn't start the run (${code}).`);
     setMsg("Started. New jobs are emailed when it finishes (a few minutes).");
     setWatching(true);
   }

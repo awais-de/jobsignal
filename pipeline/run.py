@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preview", type=Path, help="with --dry-run: write the digest HTML to this file (local use only)")
     parser.add_argument("--backlog-only", action="store_true",
                         help="only extract and rank stored postings that are still pending; no fetch, no email")
+    parser.add_argument("--rerank-only", action="store_true",
+                        help="only re-rank stored jobs after a profile change; no fetch, no email")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     # httpx logs full request URLs at INFO, which include the private search terms.
@@ -66,6 +68,14 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", exc)
         return 1
 
+    if args.rerank_only:
+        db = Database.from_env()
+        if db is None:
+            log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set.")
+            return 1
+        enricher = _enricher(profile, db)
+        log.info("reranked: %d", _rerank(db, enricher, profile, datetime.now(timezone.utc)))
+        return 0
     if args.backlog_only:
         return backlog_only(profile, write=not args.dry_run)
 

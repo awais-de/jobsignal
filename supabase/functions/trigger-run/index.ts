@@ -40,10 +40,13 @@ Deno.serve(async (req) => {
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "jobsignal",
   };
-  const workflow = `https://api.github.com/repos/${REPO}/actions/workflows/daily.yml`;
+  // { workflow: "rerank" } re-ranks stored jobs after a profile save (no fetch, no email);
+  // anything else starts the daily pipeline. Only these two workflows can be started.
+  const body = await req.json().catch(() => ({}));
+  const file = body?.workflow === "rerank" ? "rerank.yml" : "daily.yml";
+  const workflow = `https://api.github.com/repos/${REPO}/actions/workflows/${file}`;
 
   // { check: true } verifies the token without starting a run.
-  const body = await req.json().catch(() => ({}));
   if (body?.check) {
     const res = await fetch(workflow, { headers });
     return res.ok ? json({ ok: true, check: true }) : json({ error: "github_error", status: res.status }, 502);
@@ -52,7 +55,7 @@ Deno.serve(async (req) => {
   const res = await fetch(`${workflow}/dispatches`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ ref: "main", inputs: { dry_run: "false" } }),
+    body: JSON.stringify(file === "daily.yml" ? { ref: "main", inputs: { dry_run: "false" } } : { ref: "main" }),
   });
   // 204 = queued. Anything else: report the status only, never the token.
   if (res.status === 204) return json({ ok: true });

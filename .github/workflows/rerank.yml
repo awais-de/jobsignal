@@ -1,0 +1,30 @@
+name: rerank
+
+# Started by the app when the profile is saved: re-ranks stored jobs with the new skills.
+# No fetching, no LLM calls, no email.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-pipeline        # never overlaps a daily run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pipeline.run --rerank-only
+        env:
+          PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}

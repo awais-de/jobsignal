@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const [version, setVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from("owner_profile").select("profile,version").eq("id", 1).maybeSingle().then(({ data, error }) => {
@@ -54,6 +55,10 @@ export default function ProfilePage() {
     setSaved(JSON.stringify(profile));
     setVersion(data.version);
     setError(null);
+    // Re-rank existing jobs with the new skills right away (GitHub workflow, ~1 minute, no email).
+    const { error: rerankError } = await supabase.functions.invoke("trigger-run", { body: { workflow: "rerank" } });
+    setNote(rerankError ? "Saved. Re-ranking will happen with the next run."
+                        : "Saved. Existing jobs are being re-ranked: reload the feed in about a minute.");
   }
 
   if (!profile) return <p className="empty">{error ?? "Loading…"}</p>;
@@ -64,14 +69,15 @@ export default function ProfilePage() {
       <div className="profile-bar">
         <h2>Profile</h2>
         <span className="muted">
-          {dirty ? "Unsaved changes" : `Saved · version ${version}`}. New settings apply from the next run ("Run now" applies them immediately);
-          skill changes also re-rank existing jobs.
+          {dirty ? "Unsaved changes" : `Saved · version ${version}`}. Saving re-ranks existing jobs within about a minute;
+          title and dealbreaker changes apply to new jobs from the next run ("Run now" applies them immediately).
         </span>
         <button className="primary" disabled={!dirty || busy || invalid.length > 0} onClick={save}>
           {busy ? "Saving…" : "Save"}
         </button>
       </div>
       {error && <p className="notice">{error}</p>}
+      {note && !dirty && <p className="notice">{note}</p>}
       {invalid.length > 0 && <p className="notice">Fix the highlighted title patterns before saving.</p>}
 
       <section className="card">

@@ -3,3 +3,10 @@
   X-Robots-Tag: noindex, nofollow
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
+
+# The page itself must always be revalidated so a new deploy shows up on reload;
+# /assets/* files have content hashes in their names and never change.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache

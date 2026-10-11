@@ -69,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         db = Database.from_env()
         if db is None and not args.dry_run:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY must be set for a real run.")
+        # GitHub drops scheduled runs at times, so the workflow has several morning crons;
+        # only the first one that gets to run does the work (manual runs always proceed).
+        if db and not args.dry_run and os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+            start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            if db.has_successful_run_since(start_of_day):
+                log.info("today's run already succeeded; nothing to do")
+                _ping(suffix="")
+                return 0
         run_id = db.start_run(dry_run=False) if db and not args.dry_run else None
         stats, digest = run_pipeline(profile, sources_cfg, db, run_id)
         subject, text, html = digest

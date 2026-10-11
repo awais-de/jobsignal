@@ -46,6 +46,12 @@ class Database:
         return resp.json() if resp.content else None
 
     # -- runs -----------------------------------------------------------------
+    def has_successful_run_since(self, since: datetime) -> bool:
+        rows = self._req("GET", "/pipeline_runs", params={
+            "select": "id", "status": "eq.success", "dry_run": "eq.false",
+            "started_at": f"gte.{since.isoformat()}", "limit": 1})
+        return bool(rows)
+
     def has_successful_run(self) -> bool:
         rows = self._req("GET", "/pipeline_runs", params={"select": "id", "status": "eq.success", "dry_run": "eq.false", "limit": 1})
         return bool(rows)

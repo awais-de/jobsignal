@@ -2,7 +2,11 @@ name: daily-pipeline
 
 on:
   schedule:
-    - cron: '17 5 * * *'   # 05:17 UTC: ~06:20 CET (winter) / ~07:20 CEST (summer)
+    # GitHub can delay or drop scheduled runs, so there are three; the first that runs does the
+    # work and the others exit early (see pipeline/run.py). ~07:20 / 08:50 / 10:20 German summer time.
+    - cron: '17 5 * * *'
+    - cron: '47 6 * * *'
+    - cron: '17 8 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

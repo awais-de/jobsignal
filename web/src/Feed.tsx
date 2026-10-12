@@ -40,9 +40,10 @@ function dayLabel(key: string): string {
 const byRank = (a: Posting, b: Posting) =>
   (b.rank_score ?? -1) - (a.rank_score ?? -1) || (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
 
-// Group by the date the job was posted; the day it was found only when the source gives no date
-// (a newly watched company's existing jobs keep their real dates).
-const postedKey = (r: Posting) => r.posted_date ?? dayKey(r.first_seen_at);
+// Group by the day a run found the job, so each run's new jobs sit together (the card still shows
+// the posting date). Jobs added by hand go under their posting date instead: they weren't found by a run.
+const postedKey = (r: Posting) =>
+  r.source === "manual" && r.posted_date ? r.posted_date : dayKey(r.first_seen_at);
 
 function groupByDay(rows: Posting[]): [string, Posting[]][] {
   const groups = new Map<string, Posting[]>();
@@ -51,7 +52,7 @@ function groupByDay(rows: Posting[]): [string, Posting[]][] {
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   return [...groups.entries()]
-    .sort(([a], [b]) => b.localeCompare(a))          // newest posting date first
+    .sort(([a], [b]) => b.localeCompare(a))          // newest day first
     .map(([k, items]) => [k, items.sort(byRank)]);
 }
 
@@ -144,7 +145,7 @@ export default function Feed() {
         })
       )}
       {rows !== null && rows.length > 0 && (
-        <p className="empty">Jobs found in the last {HISTORY_DAYS} days, grouped by the date they were posted.</p>
+        <p className="empty">Jobs found in the last {HISTORY_DAYS} days, grouped by the day they were found.</p>
       )}
     </>
   );

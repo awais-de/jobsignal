@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConnectionsImport } from "./Outreach";
 import { supabase } from "./supabase";
 
 // The owner's profile, edited here instead of a YAML file. The pipeline reads it on every run;
@@ -13,6 +14,7 @@ type Profile = {
   contract_types: string[];
   skills: Skills;
   watchlist?: Company[];
+  outreach?: { sender_name?: string };
   [key: string]: unknown;
 };
 
@@ -125,6 +127,17 @@ export default function ProfilePage() {
         <p className="muted">Only skills you'd defend in an interview. Spelling variants help matching job ads ("ADF" = Azure Data Factory).</p>
         <SkillsEditor skills={profile.skills} onChange={(skills) => set({ skills })} />
       </section>
+
+      <section className="card">
+        <h3>Reaching out</h3>
+        <div className="row">
+          <label>Your name, as it appears in pings ("Hi Anna, I'm …")
+            <input value={profile.outreach?.sender_name ?? ""} placeholder="First name"
+                   onChange={(e) => set({ outreach: { ...profile.outreach, sender_name: e.target.value } })} />
+          </label>
+        </div>
+      </section>
+      <ConnectionsImport />
 
       <section className="card">
         <h3>Watched companies</h3>

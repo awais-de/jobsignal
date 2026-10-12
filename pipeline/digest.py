@@ -15,11 +15,37 @@ BUTTON = ("display:inline-block;padding:4px 12px;margin-right:8px;border-radius:
           "text-decoration:none;font-size:13px;font-weight:600;")
 
 
+CLOSED = {"rejected", "withdrawn", "offer_declined", "offer_accepted", "no_response", "drafted"}
+
+
+def outreach_reminders(apps: list[dict], statuses: list[dict], pings: list[dict], today: date,
+                       cap: int = 5) -> list[str]:
+    """Digest lines: recent applications nobody was pinged about, and pings whose follow-up is due."""
+    status = {s["application_id"]: s["status"] for s in statuses}
+    pinged = {p["application_id"] for p in pings}
+    open_apps = [a for a in apps if status.get(a["id"], "applied") not in CLOSED and a["id"] not in pinged]
+    due = [p for p in pings if p["status"] == "sent" and not p.get("followed_up_at")
+           and p.get("follow_up_due") and p["follow_up_due"] <= today.isoformat()]
+    lines = []
+    if open_apps:
+        names = [f'{a["job_postings"]["company_name"]} ({a["job_postings"]["title"]})' for a in open_apps[:cap]]
+        more = f" and {len(open_apps) - cap} more" if len(open_apps) > cap else ""
+        lines.append(f"Reach out: nobody contacted yet for {', '.join(names)}{more}.")
+    if due:
+        names = [f'{(p.get("contacts") or {}).get("full_name", "a contact")} ({(p.get("contacts") or {}).get("company_name") or "?"})'
+                 for p in due[:cap]]
+        more = f" and {len(due) - cap} more" if len(due) > cap else ""
+        lines.append(f"Follow up today: {', '.join(names)}{more}.")
+    return lines
+
+
 def build_digest(shown: list[RawPosting], total: int, day: date,
                  links: list[tuple[str, str] | None] | None = None,
                  app_url: str | None = None,
-                 extras: list[dict] | None = None) -> tuple[str, str, str]:
+                 extras: list[dict] | None = None,
+                 reminders: list[str] | None = None) -> tuple[str, str, str]:
     """Returns (subject, text, html). `shown` is already ordered and capped; `total` counts all that passed.
+    `reminders` are outreach lines (see outreach_reminders), shown above the jobs.
     `links` holds an (apply_url, skip_url) pair per shown posting, or None when no links can be made.
     `app_url` adds a link to the web app's timeline, which keeps every job for 30 days."""
     links = links or [None] * len(shown)
@@ -30,9 +56,20 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
     app_html = (f'<p style="font-size:13px"><a href="{escape(app_url)}">Open the timeline</a> '
                 "for every job from the last 30 days.</p>") if app_url else ""
 
+    reminders = reminders or []
+    apps_link = f"{app_url.rstrip('/')}/#applications" if app_url else None
+    rem_text = "".join(f"{r}\n" for r in reminders) + (f"Applications: {apps_link}\n" if reminders and apps_link else "")
+    rem_text = f"{rem_text}\n" if rem_text else ""
+    rem_html = ""
+    if reminders:
+        rem_html = ('<div style="background:#fff8c5;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:14px">'
+                    + "".join(f"<div>{escape(r)}</div>" for r in reminders)
+                    + (f'<div><a href="{escape(apps_link)}">Open Applications</a></div>' if apps_link else "")
+                    + "</div>")
+
     if not shown:
-        text = "No new postings passed the filters today. That's a normal result." + app_text
-        html = f"<p>{escape(text.split(chr(10))[0])}</p>{app_html}"
+        text = rem_text + "No new postings passed the filters today. That's a normal result." + app_text
+        html = f"{rem_html}<p>No new postings passed the filters today. That's a normal result.</p>{app_html}"
         return subject, text, html
 
     text_lines, html_items = [], []
@@ -56,14 +93,15 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
             + f"{actions_html}</li>"
         )
     more = f"\n…and {hidden} more{' in the timeline' if app_url else ''}." if hidden else ""
-    text = "\n\n".join(text_lines) + more + app_text
+    text = rem_text + "\n\n".join(text_lines) + more + app_text
     more_html = ""
     if hidden:
         more_html = (f'<p>…and <a href="{escape(app_url)}">{hidden} more in the timeline</a>.</p>'
                      if app_url else f"<p>…and {hidden} more.</p>")
     html = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.4">'
-        f'<ol style="padding-left:20px">{"".join(html_items)}</ol>'
+        + rem_html
+        + f'<ol style="padding-left:20px">{"".join(html_items)}</ol>'
         + more_html + app_html
         + "</div>"
     )

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import EmailQueue, { gmailLink } from "./EmailQueue";
 import { CoverLetter, RESUME_COLUMNS, ResumeLink, ResumePicker, ResumeText, type Resume } from "./Resumes";
+import { PING_COLUMNS, type Ping } from "./Outreach";
 import { buildPrepPrompt, INTERVIEW_KINDS } from "./prep";
 import { sourceLabel, supabase } from "./supabase";
 
@@ -76,10 +77,25 @@ function tone(status: string): string {
   return "blue";
 }
 
-const STATUS_FILTERS: { key: string; label: string; test: (s: string) => boolean }[] = [
-  { key: "active", label: "Active", test: (s) => !["rejected", "withdrawn", "offer_declined", "offer_accepted", "no_response"].includes(s) },
+const CLOSED = ["rejected", "withdrawn", "offer_declined", "offer_accepted", "no_response"];
+const isActive = (s: string) => !CLOSED.includes(s);
+
+/** Outreach state of one application: nobody pinged yet, a follow-up due, waiting, or replied. */
+type Reach = "none" | "due" | "waiting" | "replied";
+function reachOf(pings: Ping[], today: string): Reach {
+  if (!pings.length) return "none";
+  if (pings.some((p) => p.status === "replied")) return "replied";
+  if (pings.some((p) => p.status === "sent" && !p.followed_up_at && p.follow_up_due && p.follow_up_due <= today)) return "due";
+  return "waiting";
+}
+
+// Status filters test the status; the outreach ones (reach) the ping state of active applications.
+const STATUS_FILTERS: { key: string; label: string; test: (s: string, r: Reach) => boolean }[] = [
+  { key: "active", label: "Active", test: (s) => isActive(s) },
+  { key: "reach", label: "To reach out", test: (s, r) => isActive(s) && s !== "drafted" && r === "none" },
+  { key: "followup", label: "Follow up", test: (s, r) => isActive(s) && r === "due" },
   { key: "interviews", label: "Interviews", test: (s) => s.startsWith("interview") || s === "assessment_received" },
-  { key: "closed", label: "Closed", test: (s) => ["rejected", "withdrawn", "offer_declined", "offer_accepted", "no_response"].includes(s) },
+  { key: "closed", label: "Closed", test: (s) => CLOSED.includes(s) },
   { key: "all", label: "All", test: () => true },
 ];
 
@@ -92,6 +108,7 @@ export default function Applications() {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [scheduling, setScheduling] = useState<{ appId: string; type: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [pings, setPings] = useState<Ping[]>([]);
   const resumeById = useMemo(() => new Map(resumes.map((r) => [r.id, r])), [resumes]);
 
   const load = useCallback(async () => {
@@ -117,6 +134,10 @@ export default function Applications() {
         .order("created_at", { ascending: false });
       if (ev.error) setError(ev.error.message);
       else setEvents(ev.data as unknown as Event[]);   // inbound_emails is many-to-one: an object, not a list
+      const pg = await supabase.from("outreach").select(PING_COLUMNS).is("deleted_at", null)
+        .in("application_id", list.map((a) => a.id));
+      if (pg.error) setError(pg.error.message);
+      else setPings(pg.data as unknown as Ping[]);
     }
   }, []);
 
@@ -129,6 +150,13 @@ export default function Applications() {
   }, [events]);
 
   const statusOf = (id: string) => (byApp.get(id) ?? []).find((e) => e.event_type !== "note");
+  const today = toDay(new Date().toISOString());
+  const pingsByApp = useMemo(() => {
+    const m = new Map<string, Ping[]>();
+    for (const p of pings) if (p.application_id) m.set(p.application_id, [...(m.get(p.application_id) ?? []), p]);
+    return m;
+  }, [pings]);
+  const reach = (id: string) => reachOf(pingsByApp.get(id) ?? [], today);
   const lastEvent = (id: string) => (byApp.get(id) ?? [])[0];
 
   async function addEvent(app: App, type: string, extra: Partial<Event> = {}) {
@@ -229,7 +257,7 @@ export default function Applications() {
   if (apps.length === 0) return <p className="empty">No applications yet. Tap Apply on a job in the feed.</p>;
 
   const test = STATUS_FILTERS.find((f) => f.key === filter)!.test;
-  const rows = apps.filter((a) => test(statusOf(a.id)?.event_type ?? "drafted"));
+  const rows = apps.filter((a) => test(statusOf(a.id)?.event_type ?? "drafted", reach(a.id)));
 
   return (
     <>
@@ -237,7 +265,7 @@ export default function Applications() {
                   apps={apps.map((a) => ({ id: a.id, label: `${a.job_postings.company_name} – ${a.job_postings.title}` }))} />
       <div className="tabs">
         {STATUS_FILTERS.map((f) => {
-          const n = apps.filter((a) => f.test(statusOf(a.id)?.event_type ?? "drafted")).length;
+          const n = apps.filter((a) => f.test(statusOf(a.id)?.event_type ?? "drafted", reach(a.id))).length;
           return (
             <button key={f.key} className={filter === f.key ? "active" : ""} onClick={() => setFilter(f.key)}>
               {f.label} <span className="day-count">{n}</span>
@@ -258,6 +286,7 @@ export default function Applications() {
               <th>Last update</th>
               <th>Resume</th>
               <th>JD</th>
+              <th>Outreach</th>
               <th>Source</th>
               <th>Add event</th>
               <th></th>
@@ -292,6 +321,10 @@ export default function Applications() {
                     </td>
                     <td>{a.jd_snapshot ? <span title="Job description stored">✓</span>
                                        : <span className="badge warn" title="Open the row to paste it">missing</span>}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <ReachCell reach={reach(a.id)} n={(pingsByApp.get(a.id) ?? []).length}
+                                 active={isActive(st?.event_type ?? "drafted") && st?.event_type !== "drafted"} href={`#job/${a.job_posting_id}`} />
+                    </td>
                     <td><span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span></td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {st?.event_type === "drafted" ? (
@@ -315,7 +348,7 @@ export default function Applications() {
                   </tr>
                   {isOpen && (
                     <tr className="detail">
-                      <td colSpan={11}>
+                      <td colSpan={12}>
                         <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}
                                 onJd={(jd) => patch(a, { jd_snapshot: jd })} onEventDate={(e, iso) => editEvent(e, { occurred_at: iso })}
                                 onPosting={(f) => savePosting(a, f)} onApplied={(d) => saveAppliedDate(a, d)}
@@ -490,6 +523,15 @@ function InterviewForm({ type, onSave, onCancel }: {
       </div>
     </div>
   );
+}
+
+function ReachCell({ reach, n, active, href }: { reach: Reach; n: number; active: boolean; href: string }) {
+  if (reach === "none") {
+    return active ? <a className="badge warn" href={href} title="Open the job to see who to ping">reach out</a> : <span className="muted">–</span>;
+  }
+  if (reach === "due") return <a className="status status-orange" href={href}>follow up</a>;
+  if (reach === "replied") return <a className="status status-green" href={href}>replied</a>;
+  return <a className="muted" href={href}>{n} sent</a>;
 }
 
 /** Local YYYY-MM-DD for a date input. */

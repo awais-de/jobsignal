@@ -393,3 +393,24 @@ a.link-button.small { padding: 3px 10px; font-size: 13px; }
   font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
 }
+
+/* Reach out */
+.outreach { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.outreach .notepad-head select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px;
+}
+ul.candidates, ul.pings { list-style: none; margin: 0 0 10px; padding: 0; }
+ul.candidates li, ul.pings li {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border);
+}
+ul.candidates li:first-child, ul.pings li:first-child { border-top: none; }
+ul.pings li.due { background: var(--warn-bg); margin: 0 -8px; padding: 8px; border-radius: 6px; }
+ul.pings .status { margin-left: 6px; }
+.cand-head .badge { margin-left: 6px; }
+.log-ping { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; }
+.log-ping select {
+  font: inherit; font-size: 12px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px;
+}
+.search-links { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

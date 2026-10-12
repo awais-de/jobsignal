@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDate, label as skipLabel, Why } from "./Feed";
 import { buildTailorPrompt, emptyNotes, NOTE_FIELDS, notesEqual, parseNotes, serializeNotes, type Notes } from "./notes";
+import OutreachPanel from "./Outreach";
 import { buildPrepPrompt } from "./prep";
 import { RESUME_COLUMNS, type Resume } from "./Resumes";
 import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 // One job, opened as its own tab: the notepad next to everything known about the job.
 
-type Job = Posting & { description: string | null };
+type Job = Posting & { description: string | null; named_contact: string | null };
 type Application = { id: string; applied_at: string | null; jd_snapshot: string | null; resume_id: string | null };
 
 const REMOTE: Record<string, string> = { remote: "Remote", hybrid: "Hybrid", onsite: "On-site" };
@@ -28,14 +29,17 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
   const [toast, setToast] = useState<string | null>(null);
   const [cvId, setCvId] = useState<string>("");
   const [skipping, setSkipping] = useState(false);
+  const [sender, setSender] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [p, a, r] = await Promise.all([
-      supabase.from("job_postings").select(POSTING_COLUMNS + ",description").eq("id", id).maybeSingle(),
+    const [p, a, r, prof] = await Promise.all([
+      supabase.from("job_postings").select(POSTING_COLUMNS + ",description,named_contact").eq("id", id).maybeSingle(),
       supabase.from("applications").select("id,applied_at,jd_snapshot,resume_id")
         .eq("job_posting_id", id).is("deleted_at", null).maybeSingle(),
       supabase.from("resumes").select(RESUME_COLUMNS).is("deleted_at", null).order("created_at", { ascending: false }),
+      supabase.from("owner_profile").select("profile").eq("id", 1).maybeSingle(),
     ]);
+    setSender(((prof.data?.profile as { outreach?: { sender_name?: string } } | undefined)?.outreach?.sender_name ?? "").trim() || null);
     if (p.error || !p.data) return setError(p.error?.message ?? "This job doesn't exist or was deleted.");
     const j = p.data as unknown as Job;
     setJob(j);
@@ -196,6 +200,8 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
         </section>
 
         <aside className="job-side">
+          {app ? <OutreachPanel job={job} applicationId={app.id} sender={sender} />
+               : <p className="muted small-text">Once you apply, people to reach out to appear here.</p>}
           {(reqs.length > 0 || job.german_level || job.required_years != null) && (
             <>
               <h3>Requirements</h3>

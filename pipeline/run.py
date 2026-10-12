@@ -19,6 +19,7 @@ import traceback
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import httpx
@@ -32,7 +33,7 @@ from pipeline.llm.router import build_router
 from pipeline.db import Database
 from pipeline.dedupe import apply_dedupe, build_candidates
 from pipeline.deliver import send_email
-from pipeline.digest import build_digest
+from pipeline.digest import build_digest, outreach_reminders
 from pipeline.filters import HardFilters
 from pipeline.models import Candidate, RawPosting
 from pipeline.discovery import probe_company, watch_entry
@@ -274,8 +275,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     # 7. digest
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
+    reminders = _reminders(db, now) if db else []
+    stats["outreach_reminders"] = len(reminders)
     subject, text, html = build_digest([c.raw for c in surface], len(passed), now.date(), links, app_url,
-                                       extras=[c.enrichment for c in surface])
+                                       extras=[c.enrichment for c in surface], reminders=reminders)
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"
@@ -443,6 +446,16 @@ def _flush_router(router, db: Database, stage: str) -> None:
         db.cache_put(router.new_cache, stage)
     if router.usage:
         db.record_llm_usage(router.usage)
+
+
+def _reminders(db: Database, now: datetime) -> list[str]:
+    """Outreach reminders for the digest; never fails the run (the digest goes out without them)."""
+    try:
+        today = now.astimezone(ZoneInfo("Europe/Berlin")).date()
+        return outreach_reminders(*db.outreach_rows(today - timedelta(days=14)), today)
+    except Exception:  # noqa: BLE001
+        log.warning("outreach reminders skipped")
+        return []
 
 
 def _ping(suffix: str) -> None:

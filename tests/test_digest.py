@@ -47,3 +47,37 @@ def test_empty_digest_links_timeline():
 def test_html_is_escaped():
     _, _, html = build_digest([posting(title="<script>x</script>")], 1, date(2026, 10, 10))
     assert "<script>" not in html
+
+
+# -- outreach reminders ------------------------------------------------------------------
+def _app(id, company="Beispiel GmbH", title="Data Engineer"):
+    return {"id": id, "applied_at": "2026-10-10T10:00:00Z", "job_postings": {"company_name": company, "title": title}}
+
+
+def test_reminders_list_unpinged_active_applications():
+    from pipeline.digest import outreach_reminders
+    apps = [_app("A1"), _app("A2", "Muster AG"), _app("A3", "Closed AG")]
+    statuses = [{"application_id": "A1", "status": "applied"}, {"application_id": "A2", "status": "applied"},
+                {"application_id": "A3", "status": "rejected"}]
+    pings = [{"application_id": "A2", "status": "sent", "follow_up_due": "2026-10-19", "followed_up_at": None,
+              "contacts": {"full_name": "Anna Muster", "company_name": "Muster AG"}}]
+    lines = outreach_reminders(apps, statuses, pings, date(2026, 10, 12))
+    assert lines == ["Reach out: nobody contacted yet for Beispiel GmbH (Data Engineer)."]
+
+
+def test_reminders_follow_up_due_today_only_once():
+    from pipeline.digest import outreach_reminders
+    ping = {"application_id": "A1", "status": "sent", "follow_up_due": "2026-10-12", "followed_up_at": None,
+            "contacts": {"full_name": "Anna Muster", "company_name": "Muster AG"}}
+    assert outreach_reminders([_app("A1")], [], [ping], date(2026, 10, 12)) == ["Follow up today: Anna Muster (Muster AG)."]
+    done = {**ping, "followed_up_at": "2026-10-12T09:00:00Z"}
+    assert outreach_reminders([_app("A1")], [], [done], date(2026, 10, 12)) == []
+    replied = {**ping, "status": "replied"}
+    assert outreach_reminders([_app("A1")], [], [replied], date(2026, 10, 12)) == []
+
+
+def test_digest_shows_reminders_even_without_jobs():
+    _, text, html = build_digest([], 0, date(2026, 10, 12), app_url="https://app.example",
+                                 reminders=["Reach out: nobody contacted yet for Beispiel GmbH (Data Engineer)."])
+    assert text.startswith("Reach out:") and "https://app.example/#applications" in text
+    assert "Open Applications" in html

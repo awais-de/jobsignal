@@ -40,15 +40,26 @@ function dayLabel(key: string): string {
 const byRank = (a: Posting, b: Posting) =>
   (b.rank_score ?? -1) - (a.rank_score ?? -1) || (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
 
-// Group by the day a run found the job, so each run's new jobs sit together (the card still shows
-// the posting date). Jobs added by hand go under their posting date instead: they weren't found by a run.
-const postedKey = (r: Posting) =>
-  r.source === "manual" && r.posted_date ? r.posted_date : dayKey(r.first_seen_at);
+// "found": the day a run found the job, so each run's new jobs sit together. Jobs added by hand go
+// under their posting date: they weren't found by a run. "posted": the date the job was posted
+// (the day it was found when the source gives none).
+type GroupBy = "found" | "posted";
+const GROUP_KEY = "jobsignal.feed.groupBy";
+const groupKey = (r: Posting, by: GroupBy) =>
+  (by === "posted" || r.source === "manual") && r.posted_date ? r.posted_date : dayKey(r.first_seen_at);
 
-function groupByDay(rows: Posting[]): [string, Posting[]][] {
+function loadGroupBy(): GroupBy {
+  try {
+    return localStorage.getItem(GROUP_KEY) === "posted" ? "posted" : "found";
+  } catch {
+    return "found";
+  }
+}
+
+function groupByDay(rows: Posting[], by: GroupBy): [string, Posting[]][] {
   const groups = new Map<string, Posting[]>();
   for (const r of rows) {
-    const k = postedKey(r);
+    const k = groupKey(r, by);
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   return [...groups.entries()]
@@ -59,6 +70,11 @@ function groupByDay(rows: Posting[]): [string, Posting[]][] {
 export default function Feed() {
   const [tab, setTab] = useState<Tab>(loadTab);
   const [rows, setRows] = useState<Posting[] | null>(null);
+  const [groupBy, setGroupBy] = useState<GroupBy>(loadGroupBy);
+  const changeGroupBy = (g: GroupBy) => {
+    setGroupBy(g);
+    try { localStorage.setItem(GROUP_KEY, g); } catch { /* per-browser convenience only */ }
+  };
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -110,6 +126,13 @@ export default function Feed() {
             {t.label}
           </button>
         ))}
+        <label className="group-by">
+          Group by
+          <select value={groupBy} onChange={(e) => changeGroupBy(e.target.value as GroupBy)}>
+            <option value="found">Run date</option>
+            <option value="posted">Posting date</option>
+          </select>
+        </label>
       </div>
       <FilterBar value={filters} onChange={changeFilters} sources={sources}
                  shown={visible?.length ?? 0} total={rows?.length ?? 0} />
@@ -123,7 +146,7 @@ export default function Feed() {
           No jobs match these filters. <button className="link" onClick={() => changeFilters(EMPTY)}>Clear filters</button>
         </p>
       ) : (
-        groupByDay(visible).map(([day, items]) => {
+        groupByDay(visible, groupBy).map(([day, items]) => {
           const open = items.filter((p) => p.triage_status === "new").length;
           return (
             <section key={day}>
@@ -145,7 +168,7 @@ export default function Feed() {
         })
       )}
       {rows !== null && rows.length > 0 && (
-        <p className="empty">Jobs found in the last {HISTORY_DAYS} days, grouped by the day they were found.</p>
+        <p className="empty">Jobs found in the last {HISTORY_DAYS} days, grouped by {groupBy === "found" ? "the day a run found them" : "the date they were posted"}.</p>
       )}
     </>
   );

@@ -388,3 +388,8 @@ a.link-button.small { padding: 3px 10px; font-size: 13px; }
 .req-skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .skill.plain { background: var(--chip); color: var(--muted); }
 .jd.jd-full { max-height: 70vh; }
+.group-by { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.group-by select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}

@@ -273,9 +273,11 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                  inserted_by_source[r["source"]], updated_by_source[r["source"]], r["ms"], r["error"])
         _flush_llm(enricher, db)
         _flush_router(page_router, db, PAGE_STAGE)
+        # Housekeeping after the jobs are saved: a failure here is logged and skipped, it never costs
+        # the digest (2026-10-12: one malformed company domain failed the whole run).
         if disc_cfg.get("enabled"):
-            stats["discovery"] = _discover(db, candidates, disc_cfg, now)
-        stats["refiltered"] = _refilter(db, profile, sources_cfg, now)
+            stats["discovery"] = _optional("discovery", lambda: _discover(db, candidates, disc_cfg, now))
+        stats["refiltered"] = _optional("refilter", lambda: _refilter(db, profile, sources_cfg, now))
         stats["reranked"] = _rerank(db, enricher, profile, now)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
@@ -406,6 +408,15 @@ def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: date
     return changed
 
 
+def _optional(step: str, fn):
+    """Run a non-essential step; on any error log its type (no details: public logs) and go on."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("%s skipped after an error: %s", step, type(exc).__name__)
+        return {"error": type(exc).__name__}
+
+
 REFILTER_DAYS = 14
 REFILTER_DETAIL_CAP = 40
 
@@ -484,7 +495,11 @@ def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], no
     for comp in db.companies_to_probe(int(cfg.get("companies_per_run", 20)), now):
         if time.monotonic() > deadline:
             break
-        found = probe_company(comp["name"], api)
+        try:
+            found = probe_company(comp["name"], api)
+        except Exception:  # noqa: BLE001 - one odd company must not stop discovery (or the run)
+            found = None
+            counts["errors"] += 1
         if found:
             db.update_company(comp["id"], {
                 "discovery_status": "found", "ats": found.ats, "ats_token": found.token,

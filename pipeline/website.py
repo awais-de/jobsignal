@@ -44,16 +44,23 @@ class SiteHit:
     careers_url: str
 
 
+# Network errors, and URLs that can't be built from a name (a host label over 63 characters raises
+# UnicodeError, a ValueError; bad characters raise InvalidURL): the company is simply "not found".
+_FETCH_ERRORS = (httpx.HTTPError, httpx.InvalidURL, ValueError)
+
+
 def find_website(name: str, c: httpx.Client) -> str | None:
     toks = tokens(name)
     if not toks:
         return None
     for slug in dict.fromkeys(["-".join(toks), "".join(toks)] + [t for t in toks if len(t) >= 5]):
+        if len(slug) > 63:          # not a possible domain name
+            continue
         for tld in ("de", "com"):
             url = f"https://www.{slug}.{tld}/"
             try:
                 r = c.get(url)
-            except httpx.HTTPError:
+            except _FETCH_ERRORS:
                 continue
             if r.status_code == 200 and slug.split("-")[0] in _page_name(r.text).replace(" ", "") + " " + _page_name(r.text):
                 return str(r.url)
@@ -100,7 +107,7 @@ def jsonld_pattern(url: str, html: str, c: httpx.Client) -> str | None:
             if _job_posting_ld(c.get(link).text):
                 m = re.search(r"/(job|jobs|stelle|stellen|stellenangebote?|vacancies|vacancy|position|positions)/", urlparse(link).path, re.I)
                 return re.escape(m.group(0)) if m else None
-        except httpx.HTTPError:
+        except _FETCH_ERRORS:
             continue
     return None
 
@@ -127,7 +134,7 @@ def _sitemap_jobs(root: str, c: httpx.Client) -> tuple[list[str], bool]:
         locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.text) if sm.status_code == 200 else []
         jobs = [u for u in locs if re.search(r"/jobs?/", u)]
         return jobs, bool(jobs) and bool(_job_posting_ld(c.get(jobs[0]).text))
-    except httpx.HTTPError:
+    except _FETCH_ERRORS:
         return [], False
 
 
@@ -148,7 +155,7 @@ def discover_via_website(name: str, c: httpx.Client) -> SiteHit | None:
         if portal and not cu.startswith(portal):
             ppage = c.get(portal)
             html, cu = f"{html}\n{ppage.text}", str(ppage.url)
-    except httpx.HTTPError:
+    except _FETCH_ERRORS:
         return None
     root = f"{urlparse(cu).scheme}://{urlparse(cu).netloc}"
     # Same company site if the registrable name matches (zalando.de and jobs.zalando.com both count).

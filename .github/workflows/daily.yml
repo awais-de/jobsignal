@@ -24,7 +24,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60          # more search terms + free-tier AI pacing: runs take ~15-30 min
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

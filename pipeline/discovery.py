@@ -56,7 +56,7 @@ class Found:
 def _try(ats: ATS, system: str, slug: str) -> tuple[int, str] | None:
     try:
         return getattr(ats, f"{system}_probe")(slug)
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError):
         return None
 
 
@@ -92,7 +92,7 @@ def _workday_count(ats: ATS, token: str) -> int:
         r = ats.c.post(f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
                        json={"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""})
         return int(r.json().get("total") or 0) if r.status_code == 200 else 0
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError):
         return 0
 
 

@@ -125,3 +125,20 @@ def test_smartrecruiters_skips_titles_before_details():
                      title_ok=lambda t: "Data" in t)
     assert [j.title for j in jobs] == ["Data Engineer"] and jobs[0].description == "SQL" and jobs[0].city == "Berlin"
     assert sum("/postings/" in u for u in calls) == 1                      # one detail request only
+
+
+def test_overlong_or_odd_company_names_are_not_found_not_a_crash():
+    # 2026-10-12: a host label over 63 characters raised UnicodeError (not an httpx.HTTPError) while the
+    # address was resolved, and failed the whole run.
+    import httpx
+    from pipeline.website import find_website
+
+    def resolve(request):
+        if any(len(label) > 63 for label in request.url.host.split(".")):
+            raise UnicodeError("label empty or too long")       # what the real transport raises
+        return httpx.Response(404)
+
+    c = httpx.Client(transport=httpx.MockTransport(resolve))
+    long_name = "Gesellschaft für angewandte Datenverarbeitung und Informationstechnologie Süd-West mbH & Co. KG"
+    assert find_website(long_name, c) is None
+    assert find_website("x" * 70, c) is None

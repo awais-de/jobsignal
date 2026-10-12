@@ -12,6 +12,9 @@ export const ATS_DOMAINS: Record<string, string> = {
   "taleo.net": "taleo", "icims.com": "icims", "onlyfy.jobs": "onlyfy", "prescreen.io": "onlyfy",
   "concludis.de": "concludis", "umantis.com": "umantis", "haufe-umantis.com": "umantis",
   "bamboohr.com": "bamboohr", "jobylon.com": "jobylon",
+  // German HR systems (2026-10-12: a Peras confirmation for a Volksbank was filed under 'geno.')
+  "peras.de": "peras", "b-ite.com": "bite", "b-ite.de": "bite", "erecruiter.net": "erecruiter",
+  "coveto.de": "coveto", "hr4you.org": "hr4you", "kenjo.io": "kenjo", "onapply.de": "onapply",
 };
 const FREEMAIL = ["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "gmx.de", "gmx.net", "web.de", "yahoo.com", "t-online.de"];
 const NOREPLY_NAMES = /^(no-?reply|noreply|do-?not-?reply|recruiting|recruitment|careers?|karriere|jobs?|talent( acquisition)?|hr|personal(abteilung)?|bewerbermanagement|bewerbungen?|team)$/i;
@@ -58,8 +61,11 @@ const COMPANY_IN_TEXT = [
   /^([A-ZÄÖÜ][\w&.\-' ]{1,40}?)\s*[:|]\s*(?:your |ihre |deine |re: )?(?:application|bewerbung|eingangsbestätigung)/i,
   /(?:ihre|deine) bewerbung (?:bei|an) (?:der |die |dem )?([A-ZÄÖÜ][\w&.\-' ]{1,60}?)(?:[,.!:\n]| als | für | - | – |$)/,
   /(?:your application (?:to|at|with)|applying (?:to|at)|interest in (?:joining |working at )?)([A-Z][\w&.\-' ]{1,60}?)(?:[,.!:\n]| for | as | - | – |$)/,
-  /(?:bei|at) ([A-ZÄÖÜ][\w&.\-]+(?: [A-ZÄÖÜ&][\w&.\-]+){0,3} (?:GmbH|AG|SE|KG|Inc\.?|Ltd\.?)(?: & Co\. KG)?)/,
 ];
+// "… Interesse an einer Beschäftigung bei der Volksbank Mittweida eG": a name with a legal form after
+// bei/at, with an optional article. Matched on the text with line breaks flattened (names wrap).
+const COMPANY_WITH_LEGAL_FORM =
+  /(?:bei|at|with) (?:der |dem |den |the )?(\p{Lu}[\p{L}\p{N}&.\-]+(?: [\p{Lu}&][\p{L}\p{N}&.\-]+){0,4} (?:GmbH & Co\. KG|GmbH|AG|SE|KGaA|KG|eG|mbH|UG|OHG|e\. ?V\.|Inc\.?|Ltd\.?))(?![\p{L}])/u;
 const ROLE_IN_TEXT = [
   // Subject suffix: "… Application confirmation - IT Project Manager (m/f/d)"
   /(?:application|bewerbung)(?: confirmation|sbestätigung|seingang| received| eingegangen)?\s*[-–:|]\s*([^\n]{3,90}?)\s*(?:\(|$)/im,
@@ -73,8 +79,18 @@ const DATE_DE = /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b/;
 const DATE_ISO = /\b(20\d{2})-(\d{2})-(\d{2})\b/;
 const TIME = /\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(?:uhr|h|am|pm)?\b/i;
 
-export function extractFields(fromName: string, fromDomain: string, subject: string, body: string): Extracted {
+/** "noreply-volksbank-mittweida" → "volksbank mittweida": HR systems often put the employer in the sender's local part. */
+function companyFromLocalPart(local: string): string | null {
+  const s = local.toLowerCase()
+    .replace(/^(no-?reply|do-?not-?reply|bewerbung(en)?|bewerbermanagement|recruiting|jobs?|karriere|careers?|hr|info|mail|system)([-._+]|$)/, "")
+    .replace(/[-._+]+/g, " ").replace(/\d+/g, " ").replace(/\s+/g, " ").trim();
+  return s.length >= 3 && !NOREPLY_NAMES.test(s) ? s : null;
+}
+
+export function extractFields(fromName: string, fromDomain: string, subject: string, body: string, fromLocal = ""): Extracted {
   const text = `${subject}\n${body.slice(0, 6000)}`;
+  // Company names wrap across lines in plain-text mail ("bei \nder Volksbank"): a flattened copy.
+  const flat = `${subject}\n${body.slice(0, 6000).replace(/[ \t]*\r?\n[ \t]*/g, " ")}`;
   const ats = atsForDomain(fromDomain);
 
   let company: string | null = null;
@@ -85,12 +101,14 @@ export function extractFields(fromName: string, fromDomain: string, subject: str
       break;
     }
   }
+  if (!company) company = flat.match(COMPANY_WITH_LEGAL_FORM)?.[1].trim() ?? null;
   const name = fromName.replace(/["']/g, "").trim();
   if (!company && name && !NOREPLY_NAMES.test(name) && !/@/.test(name)) {
     // "Beispiel Daten GmbH Recruiting" / "Talent Team at Beispiel" → the company part
     company = name.replace(/\b(recruiting|recruitment|careers?|karriere|talent( acquisition)?( team)?|hr|team|jobs)\b/gi, "")
       .replace(/\b(at|bei|von|from)\b/gi, "").replace(/[|·•\-–]+/g, " ").replace(/\s+/g, " ").trim() || null;
   }
+  if (!company && ats && fromLocal) company = companyFromLocalPart(fromLocal);
   if (!company && !ats && fromDomain && !FREEMAIL.includes(fromDomain.toLowerCase())) {
     const parts = fromDomain.toLowerCase().split(".");
     company = parts.length >= 2 ? parts[parts.length - 2] : null;   // 'jobs.beispiel-daten.de' → 'beispiel-daten'

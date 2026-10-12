@@ -141,3 +141,22 @@ Deno.test("company and role from a 'Company: Application confirmation - Role' su
   assertEquals(e.company, "Beispielwerk");
   assertEquals(e.role_title, "IT Project Manager");
 });
+
+Deno.test("HR-system sender: company from the text (legal form eG, article, wrapped line), not the domain", () => {
+  const body = "Guten Tag,\n\nvielen Dank für Ihre Bewerbung und Ihr Interesse an einer Beschäftigung bei \n" +
+    "der Beispielbank Musterstadt eG.\n\nWir haben Ihre Unterlagen erfolgreich erhalten.";
+  const f = extractFields("", "geno.hr.peras.de", "Wir haben Ihre Bewerbung erhalten!", body,
+                          "noreply-beispielbank-musterstadt");
+  assertEquals(f.ats, "peras");
+  assertEquals(f.company, "Beispielbank Musterstadt eG");
+  const open = [{ id: "A1", company: "Beispielbank Musterstadt eG", title: "IT-Spezialist Data Engineer (m/w/d)", reference_number: null }];
+  assertEquals(matchApplication(f, open, null)?.application_id, "A1");
+});
+
+Deno.test("HR-system sender without a name in the text: company from the sender's local part", () => {
+  const f = extractFields("", "geno.hr.peras.de", "Wir haben Ihre Bewerbung erhalten!", "Vielen Dank.",
+                          "noreply-beispielbank-musterstadt");
+  assertEquals(f.company, "beispielbank musterstadt");
+  const open = [{ id: "A1", company: "Beispielbank Musterstadt eG", title: "Data Engineer", reference_number: null }];
+  assertEquals(matchApplication(f, open, null)?.application_id, "A1");
+});

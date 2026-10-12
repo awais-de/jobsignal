@@ -149,7 +149,12 @@ export default function Applications() {
     return m;
   }, [events]);
 
-  const statusOf = (id: string) => (byApp.get(id) ?? []).find((e) => e.event_type !== "note");
+  // The latest non-note event, but Draft/Applied never override a later stage (a confirmation email can
+  // arrive before "Mark as applied" is clicked). Same rule as the application_status view.
+  const statusOf = (id: string) => {
+    const evs = (byApp.get(id) ?? []).filter((e) => e.event_type !== "note");
+    return evs.find((e) => e.event_type !== "drafted" && e.event_type !== "applied") ?? evs[0];
+  };
   const today = toDay(new Date().toISOString());
   const pingsByApp = useMemo(() => {
     const byJob = new Map<string, Ping[]>();

@@ -67,6 +67,14 @@ async function openApplications(): Promise<OpenApp[]> {
                    reference_number: a.job_postings.reference_number }));
 }
 
+/** Any application created or marked applied in the RECENT_HOURS before this email arrived? */
+const RECENT_HOURS = 6;   // STARTING VALUE: confirmations usually arrive within minutes
+async function appliedRecently(receivedAt: string): Promise<boolean> {
+  const since = new Date(new Date(receivedAt).getTime() - RECENT_HOURS * 3600_000).toISOString();
+  const rows = await rest(`/applications?deleted_at=is.null&or=(created_at.gte.${since},applied_at.gte.${since})&select=id&limit=1`);
+  return rows.length > 0;
+}
+
 async function writeEvent(appId: string, type: string, at: string, emailId: string, confidence: number) {
   await rest("/application_events", {
     method: "POST",
@@ -117,7 +125,7 @@ async function handle(req: Request): Promise<Response> {
 
   // 2. classify + extract (spec 10.3, 10.4)
   const cls = classify(from.domain, subject, body);
-  const facts = headerless ? extractFields("", "", subject, body) : extractFields(from.name, from.domain, subject, body);
+  const facts = headerless ? extractFields("", "", subject, body) : extractFields(from.name, from.domain, subject, body, from.address.split("@")[0]);
   const actions: Action[] = [];
   let matchStatus = "ignored";
   let applicationId: string | null = null;
@@ -141,8 +149,11 @@ async function handle(req: Request): Promise<Response> {
         if (!applied.length) await writeEvent(applicationId, "applied", receivedAt, emailId, cls.confidence);
       }
       await writeEvent(applicationId, EVENT_FOR[cls.category]!, receivedAt, emailId, cls.confidence);
-    } else if (!match && cls.category === "application_confirmation" && cls.confidence >= 0.9 && facts.company) {
-      // A hand application that was never logged: create it (origin email_inferred).
+    } else if (!match && cls.category === "application_confirmation" && cls.confidence >= 0.9 && facts.company &&
+               !(await appliedRecently(receivedAt))) {
+      // A hand application that was never logged: create it (origin email_inferred). Not when the owner
+      // applied to something in the hours before: the confirmation is most likely for that one, so it
+      // goes to the review queue instead of becoming a duplicate (2026-10-12, Volksbank via Peras).
       const [posting] = await rest("/job_postings", {
         method: "POST", headers: { Prefer: "return=representation" },
         body: JSON.stringify({

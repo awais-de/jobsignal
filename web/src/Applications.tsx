@@ -135,7 +135,7 @@ export default function Applications() {
       if (ev.error) setError(ev.error.message);
       else setEvents(ev.data as unknown as Event[]);   // inbound_emails is many-to-one: an object, not a list
       const pg = await supabase.from("outreach").select(PING_COLUMNS).is("deleted_at", null)
-        .in("application_id", list.map((a) => a.id));
+        .in("job_posting_id", list.map((a) => a.job_posting_id));   // pings before applying count too
       if (pg.error) setError(pg.error.message);
       else setPings(pg.data as unknown as Ping[]);
     }
@@ -152,10 +152,10 @@ export default function Applications() {
   const statusOf = (id: string) => (byApp.get(id) ?? []).find((e) => e.event_type !== "note");
   const today = toDay(new Date().toISOString());
   const pingsByApp = useMemo(() => {
-    const m = new Map<string, Ping[]>();
-    for (const p of pings) if (p.application_id) m.set(p.application_id, [...(m.get(p.application_id) ?? []), p]);
-    return m;
-  }, [pings]);
+    const byJob = new Map<string, Ping[]>();
+    for (const p of pings) byJob.set(p.job_posting_id, [...(byJob.get(p.job_posting_id) ?? []), p]);
+    return new Map((apps ?? []).map((a) => [a.id, byJob.get(a.job_posting_id) ?? []]));
+  }, [pings, apps]);
   const reach = (id: string) => reachOf(pingsByApp.get(id) ?? [], today);
   const lastEvent = (id: string) => (byApp.get(id) ?? [])[0];
 

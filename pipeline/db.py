@@ -240,7 +240,7 @@ class Database:
     def outreach_rows(self, since: date) -> tuple[list[dict], list[dict], list[dict]]:
         """Recent applications, their status and all pings: the inputs of the digest's outreach reminders."""
         apps = self._req("GET", "/applications", params={
-            "select": "id,applied_at,job_postings(company_name,title)", "deleted_at": "is.null",
+            "select": "id,job_posting_id,applied_at,job_postings(company_name,title)", "deleted_at": "is.null",
             "applied_at": f"gte.{since.isoformat()}"})
         ids = [a["id"] for a in apps]
         statuses = []
@@ -248,7 +248,7 @@ class Database:
             statuses += self._req("GET", "/application_status", params={
                 "select": "application_id,status", "application_id": f"in.({','.join(chunk)})"})
         pings = self._req("GET", "/outreach", params={
-            "select": "application_id,status,follow_up_due,followed_up_at,contacts(full_name,company_name)",
+            "select": "job_posting_id,status,follow_up_due,followed_up_at,contacts(full_name,company_name)",
             "deleted_at": "is.null"})
         return apps, statuses, pings
 

@@ -200,8 +200,7 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
         </section>
 
         <aside className="job-side">
-          {app ? <OutreachPanel job={job} applicationId={app.id} sender={sender} />
-               : <p className="muted small-text">Once you apply, people to reach out to appear here.</p>}
+          <OutreachPanel job={job} applicationId={app?.id ?? null} sender={sender} />
           {(reqs.length > 0 || job.german_level || job.required_years != null) && (
             <>
               <h3>Requirements</h3>

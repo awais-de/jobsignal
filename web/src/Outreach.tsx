@@ -24,6 +24,7 @@ const CONTACT_COLUMNS = "id,full_name,role_title,contact_type,source,company_nam
 export type Ping = {
   id: string;
   application_id: string | null;
+  job_posting_id: string;
   contact_id: string;
   channel: Channel;
   sent_at: string;
@@ -32,7 +33,7 @@ export type Ping = {
   followed_up_at: string | null;
   contacts?: { full_name: string; role_title: string | null } | null;
 };
-export const PING_COLUMNS = "id,application_id,contact_id,channel,sent_at,status,follow_up_due,followed_up_at";
+export const PING_COLUMNS = "id,application_id,job_posting_id,contact_id,channel,sent_at,status,follow_up_due,followed_up_at";
 
 type Channel = "linkedin" | "email" | "phone" | "other";
 const CHANNELS: Record<Channel, string> = { linkedin: "LinkedIn", email: "Email", phone: "Phone", other: "Other" };
@@ -66,9 +67,10 @@ const rank = (c: Candidate) =>
   (c.source === "connections" ? 0 : 2) + (c.name ? 0 : 4) + (c.type === "hiring_manager" ? 0 : c.type === "recruiter" ? 1 : 2) +
   (isPersonalEmail(c.email) ? 0 : 1);
 
+// Works before applying too: pings belong to the job, and the message changes once applied.
 export default function OutreachPanel({ job, applicationId, sender }: {
   job: { id: string; title: string; company_name: string; description: string | null; named_contact: string | null };
-  applicationId: string;
+  applicationId: string | null;
   sender: string | null;
 }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -82,12 +84,12 @@ export default function OutreachPanel({ job, applicationId, sender }: {
     const [c, p] = await Promise.all([
       supabase.from("contacts").select(CONTACT_COLUMNS).is("deleted_at", null).limit(10000),
       supabase.from("outreach").select(PING_COLUMNS + ",contacts(full_name,role_title)")
-        .eq("application_id", applicationId).is("deleted_at", null).order("sent_at", { ascending: false }),
+        .eq("job_posting_id", job.id).is("deleted_at", null).order("sent_at", { ascending: false }),
     ]);
     if (c.error || p.error) return setError((c.error ?? p.error)!.message);
     setContacts((c.data as Contact[]).filter((x) => sameCompany(x.company_name, job.company_name)));
     setPings(p.data as unknown as Ping[]);
-  }, [applicationId, job.company_name]);
+  }, [job.id, job.company_name]);
   useEffect(() => { load(); }, [load]);
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
@@ -117,7 +119,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
   }, [job.description, job.named_contact, contacts]);
 
   const message = (c: Candidate) =>
-    pingText({ name: c.name, sender: sender || "…", position: job.title, company: job.company_name, lang });
+    pingText({ name: c.name, sender: sender || "…", position: job.title, company: job.company_name, lang, applied: !!applicationId });
 
   async function copy(c: Candidate) {
     try {
@@ -143,7 +145,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
     const contactId = await ensureContact(c);
     if (!contactId) return;
     const { data, error } = await supabase.from("outreach").insert({
-      application_id: applicationId, contact_id: contactId, channel, message_text: message(c),
+      job_posting_id: job.id, application_id: applicationId, contact_id: contactId, channel, message_text: message(c),
     }).select(PING_COLUMNS + ",contacts(full_name,role_title)").single();
     if (error) return setError(error.message);
     setPings((ps) => [data as unknown as Ping, ...ps]);
@@ -221,7 +223,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
             <div className="row">
               <button className="small primary" onClick={() => copy(c)} title={message(c)}>Copy ping</button>
               {c.best === "email" && c.email && (
-                <a className="link-button small" href={mailto(c.email, job, message(c), lang)}>Email</a>
+                <a className="link-button small" href={mailto(c.email, job, message(c), lang, !!applicationId)}>Email</a>
               )}
               {c.best === "linkedin" && (
                 <a className="link-button small" target="_blank" rel="noreferrer"
@@ -308,8 +310,10 @@ function shortRole(title: string): string {
   return title.replace(/\(.*?\)|\*|senior|junior|lead|principal|\bsr\.?|\bjr\.?/gi, " ").split(/[/|–,-]/)[0].replace(/\s+/g, " ").trim();
 }
 
-function mailto(email: string, job: { title: string; company_name: string }, body: string, lang: "de" | "en") {
-  const subject = lang === "de" ? `Meine Bewerbung: ${job.title}` : `My application: ${job.title}`;
+function mailto(email: string, job: { title: string; company_name: string }, body: string, lang: "de" | "en", applied: boolean) {
+  const subject = applied
+    ? (lang === "de" ? `Meine Bewerbung: ${job.title}` : `My application: ${job.title}`)
+    : (lang === "de" ? `Frage zur Stelle: ${job.title}` : `Question about the ${job.title} role`);
   return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 

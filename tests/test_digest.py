@@ -51,7 +51,7 @@ def test_html_is_escaped():
 
 # -- outreach reminders ------------------------------------------------------------------
 def _app(id, company="Beispiel GmbH", title="Data Engineer"):
-    return {"id": id, "applied_at": "2026-10-10T10:00:00Z", "job_postings": {"company_name": company, "title": title}}
+    return {"id": id, "job_posting_id": f"J{id}", "applied_at": "2026-10-10T10:00:00Z", "job_postings": {"company_name": company, "title": title}}
 
 
 def test_reminders_list_unpinged_active_applications():
@@ -59,7 +59,7 @@ def test_reminders_list_unpinged_active_applications():
     apps = [_app("A1"), _app("A2", "Muster AG"), _app("A3", "Closed AG")]
     statuses = [{"application_id": "A1", "status": "applied"}, {"application_id": "A2", "status": "applied"},
                 {"application_id": "A3", "status": "rejected"}]
-    pings = [{"application_id": "A2", "status": "sent", "follow_up_due": "2026-10-19", "followed_up_at": None,
+    pings = [{"job_posting_id": "JA2", "status": "sent", "follow_up_due": "2026-10-19", "followed_up_at": None,
               "contacts": {"full_name": "Anna Muster", "company_name": "Muster AG"}}]
     lines = outreach_reminders(apps, statuses, pings, date(2026, 10, 12))
     assert lines == ["Reach out: nobody contacted yet for Beispiel GmbH (Data Engineer)."]
@@ -67,7 +67,7 @@ def test_reminders_list_unpinged_active_applications():
 
 def test_reminders_follow_up_due_today_only_once():
     from pipeline.digest import outreach_reminders
-    ping = {"application_id": "A1", "status": "sent", "follow_up_due": "2026-10-12", "followed_up_at": None,
+    ping = {"job_posting_id": "JA1", "status": "sent", "follow_up_due": "2026-10-12", "followed_up_at": None,
             "contacts": {"full_name": "Anna Muster", "company_name": "Muster AG"}}
     assert outreach_reminders([_app("A1")], [], [ping], date(2026, 10, 12)) == ["Follow up today: Anna Muster (Muster AG)."]
     done = {**ping, "followed_up_at": "2026-10-12T09:00:00Z"}

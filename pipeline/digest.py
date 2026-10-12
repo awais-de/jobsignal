@@ -22,8 +22,8 @@ def outreach_reminders(apps: list[dict], statuses: list[dict], pings: list[dict]
                        cap: int = 5) -> list[str]:
     """Digest lines: recent applications nobody was pinged about, and pings whose follow-up is due."""
     status = {s["application_id"]: s["status"] for s in statuses}
-    pinged = {p["application_id"] for p in pings}
-    open_apps = [a for a in apps if status.get(a["id"], "applied") not in CLOSED and a["id"] not in pinged]
+    pinged = {p["job_posting_id"] for p in pings}          # a ping before applying counts too
+    open_apps = [a for a in apps if status.get(a["id"], "applied") not in CLOSED and a["job_posting_id"] not in pinged]
     due = [p for p in pings if p["status"] == "sent" and not p.get("followed_up_at")
            and p.get("follow_up_due") and p["follow_up_due"] <= today.isoformat()]
     lines = []

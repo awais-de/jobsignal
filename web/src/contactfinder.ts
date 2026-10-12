@@ -142,8 +142,19 @@ export function adLanguage(text: string | null): "de" | "en" {
   return de > en ? "de" : "en";
 }
 
-export function pingText(o: { name: string | null; sender: string; position: string; company: string; lang: "de" | "en" }): string {
+export function pingText(o: {
+  name: string | null; sender: string; position: string; company: string; lang: "de" | "en"; applied: boolean;
+}): string {
   const pos = cleanTitle(o.position);
+  if (!o.applied) {
+    // Before applying: interest plus a question, not "I applied".
+    if (o.lang === "de") {
+      return `${o.name ? `Hallo ${o.name}` : "Hallo"}, ich bin ${o.sender} und interessiere mich sehr für die Stelle ${pos} bei ${o.company}. ` +
+        `Bevor ich mich bewerbe, hätte ich eine kurze Frage zur Rolle und zum Team. Hätten Sie kurz Zeit? Viele Grüße, ${o.sender}`;
+    }
+    return `${o.name ? `Hi ${firstName(o.name)}` : "Hi"}, I'm ${o.sender} and I'm very interested in the ${pos} role at ${o.company}. ` +
+      `Before I apply, I'd love to ask a quick question about the role and the team. Would you have a moment? Best regards, ${o.sender}`;
+  }
   if (o.lang === "de") {
     return `${o.name ? `Hallo ${o.name}` : "Hallo"}, ich bin ${o.sender} und habe mich gerade auf die Stelle ${pos} bei ${o.company} beworben. ` +
       `Ich wollte mich kurz persönlich vorstellen. Bei Fragen zu meiner Bewerbung stehe ich gern zur Verfügung. Viele Grüße, ${o.sender}`;

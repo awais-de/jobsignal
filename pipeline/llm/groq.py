@@ -10,6 +10,7 @@ Verified 2026-10-11 (console.groq.com/docs/structured-outputs):
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -57,7 +58,7 @@ class GroqProvider:
                 if attempt < 2 and wait is not None and wait <= MAX_WAIT_SECONDS:
                     time.sleep(wait + 0.5)
                     continue
-                raise Unavailable("rate_limited")
+                raise Unavailable("rate_limited", limits={**_limits(resp), **_limit_hit(resp)})
             if resp.status_code >= 500 or resp.status_code in (408, 413):
                 raise Unavailable(f"http_{resp.status_code}")
             if resp.status_code >= 400:
@@ -71,8 +72,28 @@ class GroqProvider:
                 raise LLMError("unparseable_response") from None
             usage = data.get("usage") or {}
             return Completion(parsed, self.name, self.model,
-                              usage.get("prompt_tokens"), usage.get("completion_tokens"))
+                              usage.get("prompt_tokens"), usage.get("completion_tokens"),
+                              cached_tokens=(usage.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                              limits=_limits(resp) or None)
         raise Unavailable("rate_limited")
+
+
+def _limits(resp: httpx.Response) -> dict[str, str]:
+    """Groq's x-ratelimit-* headers (requests per day, tokens per minute: limit, remaining, reset)."""
+    return {k.lower(): v for k, v in resp.headers.items() if k.lower().startswith("x-ratelimit-")}
+
+
+_HIT = re.compile(r"on (tokens|requests) per (minute|day) \((\w+)\): Limit (\d+), Used (\d+)", re.I)
+
+
+def _limit_hit(resp: httpx.Response) -> dict[str, object]:
+    """Which limit a 429 hit, from Groq's error message ('... tokens per day (TPD): Limit 200000, Used ...')."""
+    try:
+        message = resp.json()["error"]["message"]
+    except (ValueError, KeyError, TypeError):
+        return {}
+    m = _HIT.search(message or "")
+    return {"hit": m.group(3).upper(), "hit_limit": int(m.group(4)), "hit_used": int(m.group(5))} if m else {}
 
 
 def _retry_after(resp: httpx.Response) -> float | None:

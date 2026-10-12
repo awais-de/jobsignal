@@ -152,7 +152,7 @@ class Database:
     def pending_extractions(self, since: datetime, limit: int) -> list[dict[str, Any]]:
         """Passed postings from earlier runs whose extraction hasn't succeeded yet."""
         return self._req("GET", "/job_postings", params={
-            "select": "id,title,description,contract_type,remote_policy,salary_text,source_data",
+            "select": "id,title,description,contract_type,remote_policy,salary_text,source_data,lane",
             "filter_status": "eq.passed", "extraction_status": "in.(pending,failed)",
             "description": "not.is.null", "deleted_at": "is.null",
             # Core jobs first (old rows have no lane), explore jobs with what budget is left.

@@ -199,3 +199,66 @@ def test_schema_is_strict_compatible():
             for child in node["properties"].values():
                 walk(child)
     walk(SCHEMA)
+
+
+# -- usage meter: provider limits and cached tokens -------------------------------------
+def test_groq_reports_limits_cached_tokens_and_the_limit_hit():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(200, headers={"x-ratelimit-limit-requests": "1000", "x-ratelimit-remaining-requests": "990"},
+                                  json={"choices": [{"message": {"content": json.dumps(LLM_RESULT)}}],
+                                        "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                                                  "prompt_tokens_details": {"cached_tokens": 4}}})
+        return httpx.Response(429, headers={"retry-after": "3600"}, json={"error": {"message":
+            "Rate limit reached for model `openai/gpt-oss-120b` on tokens per day (TPD): Limit 200000, Used 199000, Requested 1900."}})
+
+    groq = GroqProvider("openai/gpt-oss-120b", "k", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    out = groq.complete_json("sys", "user", SCHEMA, 500)
+    assert out.cached_tokens == 4 and out.limits["x-ratelimit-remaining-requests"] == "990"
+    with pytest.raises(Unavailable) as exc:
+        groq.complete_json("sys", "user", SCHEMA, 500)
+    assert exc.value.limits["hit"] == "TPD" and exc.value.limits["hit_limit"] == 200000
+
+
+def test_usage_rows_have_the_same_keys_whatever_happened():
+    ok, limited = FakeProvider(LLM_RESULT), FakeProvider(exc=Unavailable("rate_limited", limits={"hit": "TPD"}))
+    router = Router([limited, ok], max_calls=5)
+    router.complete_json("jd_extraction", "k1", "s", "u", SCHEMA, 100, validate=lambda d: True)
+    assert len({tuple(sorted(r)) for r in router.usage}) == 1
+    assert router.usage[0]["limits"] == {"hit": "TPD"} and router.usage[1]["success"]
+
+
+# -- cheaper without changing results: code-read dealbreakers skip the LLM ---------------
+def _enricher(router):
+    from pipeline.enrich import Enricher
+    profile = {"skills": {}, "dealbreakers": {"max_required_years": 4.5, "max_german_level": "C1"},
+               "contract_types": ["full_time"]}
+    from pipeline.config import load_config
+    return Enricher(profile, {"stages": {"jd_extraction": CFG}}, load_config("scoring.yaml"), router)
+
+
+def test_code_read_dealbreaker_rejects_without_an_llm_call():
+    p = FakeProvider(LLM_RESULT)
+    e = _enricher(Router([p], max_calls=5))
+    cols, reason = e.run("Data Engineer", "Mindestens 7 Jahre Berufserfahrung. Deutsch C2.", source_contract="full_time",
+                         remote_policy=None, salary_text=None)
+    assert reason == "too_many_years" and p.calls == 0 and cols["extraction_status"] == "skipped"
+    assert cols["required_years"] == 7 and e.skipped_by_code == 1
+
+
+def test_unfiltered_company_still_gets_the_analysis():
+    p = FakeProvider(LLM_RESULT)
+    e = _enricher(Router([p], max_calls=5))
+    cols, _ = e.run("Data Engineer", "Mindestens 7 Jahre Berufserfahrung.", source_contract="full_time",
+                    remote_policy=None, salary_text=None, unfiltered=True)
+    assert p.calls == 1 and cols["extraction_status"] == "done"
+
+
+def test_no_code_dealbreaker_means_the_llm_decides_as_before():
+    p = FakeProvider(LLM_RESULT)
+    e = _enricher(Router([p], max_calls=5))
+    e.run("Data Engineer", "Wir suchen Verstärkung.", source_contract="full_time", remote_policy=None, salary_text=None)
+    assert p.calls == 1 and e.skipped_by_code == 0

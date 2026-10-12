@@ -58,7 +58,7 @@ class Router:
                 if not validate(result.data):
                     raise LLMError("schema_mismatch")
             except Unavailable as exc:
-                self._record(stage, provider, None, error=str(exc))
+                self._record(stage, provider, None, error=str(exc), limits=exc.limits)
                 # A rate-limited provider stays rate-limited for this run: stop asking it.
                 if str(exc) == "rate_limited":
                     self.providers.remove(provider)
@@ -74,11 +74,15 @@ class Router:
             return result.data
         return None
 
-    def _record(self, stage: str, provider: LLMProvider, result: Completion | None, error: str | None = None) -> None:
+    def _record(self, stage: str, provider: LLMProvider, result: Completion | None, error: str | None = None,
+                limits: dict[str, Any] | None = None) -> None:
+        # Every row has the same keys (PostgREST bulk inserts need that).
         self.usage.append({
             "stage": stage, "provider": provider.name, "model": provider.model,
             "input_tokens": result.input_tokens if result else None,
             "output_tokens": result.output_tokens if result else None,
+            "cached_tokens": result.cached_tokens if result else None,
+            "limits": (result.limits if result else limits) or None,
             "success": result is not None, "error": error,
         })
 

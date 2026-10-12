@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { classify, MODE_LABELS, skillOverlap, type Family, type FamilyMode } from "./families";
 import { loadProfile, saveProfile, type StoredProfile } from "./profileStore";
 import { sourceLabel, supabase } from "./supabase";
+import UsageMeter from "./UsageMeter";
 
 // Title lab: try a direction (title patterns + a search term) before switching it on, and see how each
 // title family is doing. Everything here reads stored jobs or makes one live Arbeitsagentur search;
@@ -50,6 +51,7 @@ export default function Lab() {
         Try a direction before switching it on: which stored jobs it would have caught, how many the Arbeitsagentur has
         right now, and how well they fit your skills. Nothing changes until you add it to a family.
       </p>
+      <UsageMeter />
       {families.length === 0 && <p className="notice">Your profile has no title families yet.</p>}
       <Scoreboard rows={rows} families={families} />
       <Tryout rows={rows} profile={profile} onSaved={setProfile} />

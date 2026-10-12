@@ -13,6 +13,10 @@ class LLMError(Exception):
 class Unavailable(LLMError):
     """Rate limit, quota, timeout or server error: the router falls through to the next provider."""
 
+    def __init__(self, message: str, limits: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.limits = limits     # what the provider said about the limit that was hit
+
 
 @dataclass
 class Completion:
@@ -21,6 +25,8 @@ class Completion:
     model: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cached_tokens: int | None = None             # prompt tokens served from the provider's cache
+    limits: dict[str, Any] | None = None         # provider-reported rate limits with this response
 
 
 class LLMProvider(Protocol):

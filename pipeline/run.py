@@ -226,7 +226,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     to_extract = [c for c in passed if c.lane != "explore"] + explore[:explore_cap]
     for c in to_extract:
         cols, reason = enricher.run(c.raw.title, c.raw.description, source_contract=c.raw.contract_type,
-                                    remote_policy=c.raw.remote_policy, salary_text=c.raw.salary_text)
+                                    remote_policy=c.raw.remote_policy, salary_text=c.raw.salary_text,
+                                    unfiltered=c.raw.source_data.get("filter_mode") == "none")
         c.enrichment = cols
         c.raw.remote_policy = cols.get("remote_policy", c.raw.remote_policy)
         c.raw.salary_text = cols.get("salary_text", c.raw.salary_text)
@@ -302,6 +303,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         "dealbreakers": dict(dealbroken),
         "backlog": backlog,
         "llm_calls": enricher.router.calls,
+        "llm_saved_by_code": enricher.skipped_by_code,
         "first_run": first_run,
         "fetched": len(raws),
         "unique": len(candidates),
@@ -333,13 +335,20 @@ def _process_backlog(enricher: Enricher, db: Database, write: bool, now: datetim
     """Extract and rank passed postings from earlier runs that are still pending or failed."""
     if enricher.router.exhausted:
         return {}
-    rows = db.pending_extractions(now - timedelta(days=BACKLOG_DAYS), BACKLOG_LIMIT)
+    rows = db.pending_extractions(now - timedelta(days=BACKLOG_DAYS), BACKLOG_LIMIT * 3)
+    # Same order as new jobs: core first (newest first), then explore jobs mentioning most of the
+    # owner's skills. Nothing is skipped; the order only decides who goes first when the budget is short.
+    core = [r for r in rows if r.get("lane") != "explore"]
+    explore = sorted((r for r in rows if r.get("lane") == "explore"),
+                     key=lambda r: keyword_overlap(r["description"], enricher.index), reverse=True)
+    rows = (core + explore)[:BACKLOG_LIMIT]
     counts: Counter[str] = Counter()
     for r in rows:
         if enricher.router.exhausted:
             break
         cols, reason = enricher.run(r["title"], r["description"], source_contract=r["contract_type"],
-                                    remote_policy=r["remote_policy"], salary_text=r["salary_text"])
+                                    remote_policy=r["remote_policy"], salary_text=r["salary_text"],
+                                    unfiltered=(r.get("source_data") or {}).get("filter_mode") == "none")
         if reason and (r.get("source_data") or {}).get("filter_mode") != "none":
             cols.update(filter_status="rejected", filter_reasons=[reason])
         else:

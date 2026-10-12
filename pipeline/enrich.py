@@ -21,10 +21,23 @@ class Enricher:
         self.weights = weights
         self.router = router
         self.index = SkillIndex.from_profile(profile)
+        self.skipped_by_code = 0      # jobs rejected on code-read dealbreakers without an LLM call
 
     def run(self, title: str, description: str | None, *, source_contract: str | None,
-            remote_policy: str | None, salary_text: str | None) -> tuple[dict[str, Any], str | None]:
-        """Returns (column values, dealbreaker reason or None)."""
+            remote_policy: str | None, salary_text: str | None,
+            unfiltered: bool = False) -> tuple[dict[str, Any], str | None]:
+        """Returns (column values, dealbreaker reason or None). `unfiltered`: a watched company in
+        'none' mode, whose jobs are shown whatever the dealbreakers say."""
+        # Code-read values beat the LLM's (jd.extract), so when they alone hit a dealbreaker the job is
+        # rejected whatever the LLM would say: don't spend a call on it. Not for unfiltered companies,
+        # whose jobs are shown anyway and need the analysis.
+        if description and not unfiltered:
+            pre = jd.code_fields(title, description, source_contract)
+            reason = jd.dealbreaker(pre, self.profile)
+            if reason:
+                self.skipped_by_code += 1
+                return {"extraction_status": "skipped",
+                        **{k: pre[k] for k in _COLUMNS if pre.get(k) is not None}}, reason
         ex = jd.extract(title, description, self.router, self.stage_cfg, source_contract=source_contract)
         cols: dict[str, Any] = {"extraction_status": ex.status}
         if ex.status == "done":

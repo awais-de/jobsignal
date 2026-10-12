@@ -60,12 +60,8 @@ def valid(data: dict[str, Any]) -> bool:
         and isinstance(data.get("must_have_skills"), list) and isinstance(data.get("specificity"), dict)
 
 
-def extract(title: str, description: str | None, router: Router, cfg: dict[str, Any],
-            source_contract: str | None = None) -> Extraction:
-    """`source_contract` is the contract type the source states (e.g. BA's Vollzeit flag); it beats the LLM."""
-    if not description:
-        return Extraction("skipped")
-
+def code_fields(title: str, description: str, source_contract: str | None = None) -> dict[str, Any]:
+    """What code alone reads from a posting. These values win over the LLM's (spec 7.5)."""
     fields: dict[str, Any] = {
         "german_level": regex.german_level(description),
         "required_years": regex.required_years(description),
@@ -74,6 +70,16 @@ def extract(title: str, description: str | None, router: Router, cfg: dict[str, 
     contract = regex.contract_type(title) or source_contract
     if contract:
         fields["contract_type"] = contract
+    return fields
+
+
+def extract(title: str, description: str | None, router: Router, cfg: dict[str, Any],
+            source_contract: str | None = None) -> Extraction:
+    """`source_contract` is the contract type the source states (e.g. BA's Vollzeit flag); it beats the LLM."""
+    if not description:
+        return Extraction("skipped")
+
+    fields = code_fields(title, description, source_contract)
 
     text = trim(description, int(cfg.get("max_input_chars", 8000)))
     key = cache_key(STAGE, cfg["prompt_version"], f"{title}\n{text}")

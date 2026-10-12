@@ -121,6 +121,24 @@ export function contactsFromAd(description: string | null, namedContact: string 
   return [...people.values(), ...extra];
 }
 
+/** One spelling per profile ("https://www.linkedin.com/in/<slug>"), so duplicates are caught; null if not a profile link. */
+export function normLinkedin(url: string | null | undefined): string | null {
+  const m = url?.trim().match(/^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/in\/([^/?#\s]+)/i);
+  return m ? `https://www.linkedin.com/in/${m[1].toLowerCase()}` : null;
+}
+
+/** "linkedin.com/in/anna-muster-1a2b3c4d/" → "Anna Muster". The slug only, nothing is fetched. */
+export function nameFromLinkedinUrl(url: string): string | null {
+  const m = url.match(/linkedin\.com\/in\/([^/?#]+)/i);
+  if (!m) return null;
+  let slug: string;
+  try { slug = decodeURIComponent(m[1]); } catch { slug = m[1]; }
+  const parts = slug.split(/[-_]+/).filter(Boolean);
+  while (parts.length && /\d/.test(parts[parts.length - 1])) parts.pop();   // LinkedIn's id suffix
+  if (parts.length < 2 || parts.some((p) => /\d/.test(p))) return null;
+  return parts.map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ");
+}
+
 export const isPersonalEmail = (e: string | null) => !!e && !GENERIC_LOCAL.test(e.split("@")[0]);
 
 // -- the ping ----------------------------------------------------------------------------------
@@ -215,7 +233,7 @@ export function parseConnections(text: string): Connection[] {
   return rows.slice(h + 1)
     .map((r) => ({
       full_name: [v(r, fn), v(r, ln)].filter(Boolean).join(" "),
-      linkedin_url: v(r, url), email: v(r, em), company_name: v(r, co), role_title: v(r, pos), connected_on: date(v(r, on)),
+      linkedin_url: normLinkedin(v(r, url)), email: v(r, em), company_name: v(r, co), role_title: v(r, pos), connected_on: date(v(r, on)),
     }))
     .filter((c) => c.full_name);
 }

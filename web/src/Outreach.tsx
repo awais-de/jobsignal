@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  adLanguage, contactsFromAd, isPersonalEmail, LINKEDIN_NOTE_LIMIT, linkedinSearch, parseConnections, pingText,
+  adLanguage, contactsFromAd, isPersonalEmail, LINKEDIN_NOTE_LIMIT, linkedinSearch, nameFromLinkedinUrl, normLinkedin, parseConnections, pingText,
   sameCompany, type ContactType,
 } from "./contactfinder";
 import { supabase } from "./supabase";
@@ -18,8 +18,9 @@ export type Contact = {
   linkedin_url: string | null;
   email: string | null;
   phone: string | null;
+  deleted_at: string | null;
 };
-const CONTACT_COLUMNS = "id,full_name,role_title,contact_type,source,company_name,linkedin_url,email,phone";
+const CONTACT_COLUMNS = "id,full_name,role_title,contact_type,source,company_name,linkedin_url,email,phone,deleted_at";
 
 export type Ping = {
   id: string;
@@ -79,10 +80,12 @@ export default function OutreachPanel({ job, applicationId, sender }: {
   const [toast, setToast] = useState<string | null>(null);
   const [lang, setLang] = useState<"de" | "en">(() => adLanguage(job.description));
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);     // candidate key
 
   const load = useCallback(async () => {
     const [c, p] = await Promise.all([
-      supabase.from("contacts").select(CONTACT_COLUMNS).is("deleted_at", null).limit(10000),
+      // Removed contacts are loaded too: they hide the same person parsed from the job ad.
+      supabase.from("contacts").select(CONTACT_COLUMNS).limit(10000),
       supabase.from("outreach").select(PING_COLUMNS + ",contacts(full_name,role_title)")
         .eq("job_posting_id", job.id).is("deleted_at", null).order("sent_at", { ascending: false }),
     ]);
@@ -95,27 +98,37 @@ export default function OutreachPanel({ job, applicationId, sender }: {
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   const candidates = useMemo(() => {
-    const out = new Map<string, Candidate>();
-    const put = (c: Omit<Candidate, "best" | "key">) => {
-      const key = (c.name ?? c.email ?? "").toLowerCase();
-      if (!key) return;
-      const prev = out.get(key);
+    // The same person can come from the ad and from saved contacts: match on name or email.
+    const out: Candidate[] = [];
+    const removed: Candidate[] = [];
+    const same = (a: Candidate, b: Omit<Candidate, "best" | "key">) =>
+      (!!a.name && !!b.name && a.name.toLowerCase() === b.name.toLowerCase()) ||
+      (!!a.email && !!b.email && a.email.toLowerCase() === b.email.toLowerCase());
+    const put = (c: Omit<Candidate, "best" | "key">, gone = false) => {
+      if (!c.name && !c.email) return;
+      const list = gone ? removed : out;
+      const prev = list.find((x) => same(x, c));
+      if (!prev) {
+        list.push({ ...c, key: c.contactId ?? (c.email ?? c.name)!.toLowerCase(), best: bestChannel(c) });
+        return;
+      }
       // A saved contact wins over the same person parsed from the ad; keep any detail either has.
-      const merged = prev ? {
-        ...prev, ...Object.fromEntries(Object.entries(c).filter(([, v]) => v != null)),
-        contactId: prev.contactId ?? c.contactId, source: prev.contactId ? prev.source : c.source,
-      } as Candidate : { ...c, key, best: "other" as Channel };
-      merged.best = bestChannel(merged);
-      out.set(key, merged);
+      Object.assign(prev, Object.fromEntries(Object.entries(c).filter(([, v]) => v != null)));
+      if (c.contactId) prev.key = c.contactId;
+      prev.best = bestChannel(prev);
     };
-    for (const a of contactsFromAd(job.description, job.named_contact)) {
-      put({ name: a.name, role: a.role, type: a.type, source: "job_ad", email: a.email, phone: a.phone, linkedin: null, contactId: null });
-    }
     for (const c of contacts) {
-      put({ name: c.full_name, role: c.role_title, type: c.contact_type ?? (c.source === "connections" ? "referral" : "other"),
-            source: c.source, email: c.email, phone: c.phone, linkedin: c.linkedin_url, contactId: c.id });
+      // A team inbox is saved under its address as the name.
+      put({ name: c.full_name.includes("@") ? null : c.full_name, role: c.role_title,
+            type: c.contact_type ?? (c.source === "connections" ? "referral" : "other"),
+            source: c.source, email: c.email, phone: c.phone, linkedin: c.linkedin_url, contactId: c.id }, !!c.deleted_at);
     }
-    return [...out.values()].sort((a, b) => rank(a) - rank(b));
+    for (const a of contactsFromAd(job.description, job.named_contact)) {
+      const c = { name: a.name, role: a.role, type: a.type, source: "job_ad" as const, email: a.email, phone: a.phone, linkedin: null, contactId: null };
+      if (removed.some((r) => same(r, c))) continue;          // removed by the owner
+      put(c);
+    }
+    return out.sort((a, b) => rank(a) - rank(b));
   }, [job.description, job.named_contact, contacts]);
 
   const message = (c: Candidate) =>
@@ -133,7 +146,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
   async function ensureContact(c: Candidate): Promise<string | null> {
     if (c.contactId) return c.contactId;
     const { data, error } = await supabase.from("contacts").insert({
-      full_name: c.name ?? `${job.company_name} recruiting (${c.email})`, role_title: c.role, contact_type: c.type,
+      full_name: c.name ?? c.email, role_title: c.role, contact_type: c.type,
       source: c.source, company_name: job.company_name, email: c.email, phone: c.phone, linkedin_url: c.linkedin,
     }).select(CONTACT_COLUMNS).single();
     if (error) { setError(error.message); return null; }
@@ -150,6 +163,39 @@ export default function OutreachPanel({ job, applicationId, sender }: {
     if (error) return setError(error.message);
     setPings((ps) => [data as unknown as Ping, ...ps]);
     flash(`Logged. Follow-up reminder on ${fmt((data as unknown as Ping).follow_up_due!)}`);
+  }
+
+  /** Remove: saved contacts are soft-deleted; a person parsed from the ad is saved as removed, so it stays hidden. */
+  async function remove(c: Candidate) {
+    if (!window.confirm(`Remove ${c.name ?? c.email} from the list?`)) return;
+    const now = new Date().toISOString();
+    const res = c.contactId
+      ? await supabase.from("contacts").update({ deleted_at: now, manually_edited: true }).eq("id", c.contactId)
+          .select(CONTACT_COLUMNS).single()
+      : await supabase.from("contacts").insert({
+          full_name: c.name ?? c.email, role_title: c.role, contact_type: c.type, source: c.source,
+          company_name: job.company_name, email: c.email, phone: c.phone, deleted_at: now,
+        }).select(CONTACT_COLUMNS).single();
+    if (res.error) return setError(res.error.message);
+    const saved = res.data as Contact;
+    setContacts((cs) => [...cs.filter((x) => x.id !== saved.id), saved]);
+  }
+
+  /** After the form saved a contact: replace it in the list. An edited ad person whose name changed
+   *  also gets a removed entry under the old name, so the ad's version doesn't come back. */
+  async function saved(contact: Contact, before: Candidate | null) {
+    let extra: Contact | null = null;
+    if (before && !before.contactId && before.name && before.name.toLowerCase() !== contact.full_name.toLowerCase()) {
+      const { data } = await supabase.from("contacts").insert({
+        full_name: before.name, source: "job_ad", company_name: job.company_name, deleted_at: new Date().toISOString(),
+      }).select(CONTACT_COLUMNS).single();
+      extra = data as Contact | null;
+    }
+    // A contact moved to another company drops out of this job's list.
+    setContacts((cs) => [...cs.filter((x) => x.id !== contact.id), contact, ...(extra ? [extra] : [])]
+      .filter((x) => sameCompany(x.company_name, job.company_name)));
+    setEditing(null);
+    setAdding(false);
   }
 
   async function update(p: Ping, fields: Partial<Ping>) {
@@ -233,6 +279,13 @@ export default function OutreachPanel({ job, applicationId, sender }: {
               )}
               <LogButton best={c.best} onLog={(ch) => log(c, ch)} />
             </div>
+            <div className="row small-text">
+              <button className="link" onClick={() => setEditing(editing === c.key ? null : c.key)}>{editing === c.key ? "Cancel" : "Edit"}</button>
+              <button className="link danger" onClick={() => remove(c)}>Remove</button>
+            </div>
+            {editing === c.key && (
+              <ContactForm company={job.company_name} candidate={c} onError={setError} onSaved={(x) => saved(x, c)} />
+            )}
             {c.best === "linkedin" && !c.linkedin && message(c).length > LINKEDIN_NOTE_LIMIT && (
               <div className="muted small-text">
                 The ping is {message(c).length} characters: too long for a connection-request note ({LINKEDIN_NOTE_LIMIT}). Send it as a message once connected.
@@ -250,8 +303,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
         <a href={linkedinSearch(`${job.company_name} ${shortRole(job.title)}`)} target="_blank" rel="noreferrer">People in this role</a>
         <button className="link" onClick={() => setAdding((a) => !a)}>{adding ? "Cancel" : "+ Add a person"}</button>
       </div>
-      {adding && <AddContact company={job.company_name} onError={setError}
-                             onAdded={(c) => { setContacts((cs) => [...cs, c]); setAdding(false); }} />}
+      {adding && <ContactForm company={job.company_name} candidate={null} onError={setError} onSaved={(x) => saved(x, null)} />}
       {toast && <div className="toast">{toast}</div>}
     </section>
   );
@@ -270,25 +322,59 @@ function LogButton({ best, onLog }: { best: Channel; onLog: (c: Channel) => void
   );
 }
 
-function AddContact({ company, onAdded, onError }: {
+/** Add a person, or edit one from the list (a person parsed from the ad is saved on first edit).
+ *  A LinkedIn link fills in the name from the link itself. A link that is already saved (e.g. a
+ *  connection listed at their old company) updates that contact instead of failing. */
+function ContactForm({ company, candidate, onSaved, onError }: {
   company: string;
-  onAdded: (c: Contact) => void;
+  candidate: Candidate | null;
+  onSaved: (c: Contact) => void;
   onError: (msg: string) => void;
 }) {
-  const [f, setF] = useState({ full_name: "", role_title: "", linkedin_url: "", email: "", contact_type: "hiring_manager" });
+  const [f, setF] = useState({
+    full_name: candidate?.name ?? "", role_title: candidate?.role ?? "", linkedin_url: candidate?.linkedin ?? "",
+    email: candidate?.email ?? "", phone: candidate?.phone ?? "", company_name: company,
+    contact_type: candidate?.type ?? "hiring_manager",
+  });
+  const [note, setNote] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  async function save() {
-    const url = f.linkedin_url.trim();
-    if (url && !/^https:\/\/([a-z]{2,3}\.)?linkedin\.com\/in\//.test(url)) return onError("That isn't a LinkedIn profile link (linkedin.com/in/…).");
-    const { data, error } = await supabase.from("contacts").insert({
-      full_name: f.full_name.trim(), role_title: f.role_title.trim() || null, contact_type: f.contact_type, source: "manual",
-      company_name: company, linkedin_url: url || null, email: f.email.trim() || null,
-    }).select(CONTACT_COLUMNS).single();
-    if (error) return onError(error.code === "23505" ? "That LinkedIn profile is already saved as a contact." : error.message);
-    onAdded(data as Contact);
+
+  function onUrl(e: React.ChangeEvent<HTMLInputElement>) {
+    const url = e.target.value;
+    const name = nameFromLinkedinUrl(url);
+    setF((x) => ({ ...x, linkedin_url: url, full_name: x.full_name.trim() ? x.full_name : name ?? x.full_name }));
   }
+
+  async function save() {
+    const url = normLinkedin(f.linkedin_url);
+    if (f.linkedin_url.trim() && !url) return onError("That isn't a LinkedIn profile link (linkedin.com/in/…).");
+    const fields = {
+      full_name: f.full_name.trim(), role_title: f.role_title.trim() || null, contact_type: f.contact_type,
+      company_name: f.company_name.trim() || company, linkedin_url: url || null, email: f.email.trim() || null,
+      phone: f.phone.trim() || null, manually_edited: true, deleted_at: null,
+    };
+    let res = candidate?.contactId
+      ? await supabase.from("contacts").update(fields).eq("id", candidate.contactId).select(CONTACT_COLUMNS).single()
+      : await supabase.from("contacts").insert({ ...fields, source: candidate?.source ?? "manual" }).select(CONTACT_COLUMNS).single();
+    if (res.error?.code === "23505" && url && !candidate?.contactId) {
+      // Already saved under this LinkedIn link: update that contact (e.g. a connection who changed jobs).
+      const old = await supabase.from("contacts").select(CONTACT_COLUMNS).eq("linkedin_url", url).single();
+      res = await supabase.from("contacts").update(fields).eq("linkedin_url", url).select(CONTACT_COLUMNS).single();
+      if (!res.error && old.data && !sameCompany((old.data as Contact).company_name, fields.company_name)) {
+        setNote(`Already saved (at ${(old.data as Contact).company_name ?? "no company"}): updated to ${fields.company_name}.`);
+      }
+    } else if (res.error?.code === "23505") {
+      return onError("Another contact already has that LinkedIn link.");
+    }
+    if (res.error) return onError(res.error.message);
+    onSaved(res.data as Contact);
+  }
+
   return (
     <div className="register">
+      <div className="row">
+        <input placeholder="LinkedIn profile link (fills in the name)" value={f.linkedin_url} onChange={onUrl} />
+      </div>
       <div className="row">
         <input placeholder="Full name" value={f.full_name} onChange={set("full_name")} />
         <input placeholder="Role, e.g. Head of Data" value={f.role_title} onChange={set("role_title")} />
@@ -297,9 +383,13 @@ function AddContact({ company, onAdded, onError }: {
         </select>
       </div>
       <div className="row">
-        <input placeholder="LinkedIn profile link (optional)" value={f.linkedin_url} onChange={set("linkedin_url")} />
         <input placeholder="Email (optional)" value={f.email} onChange={set("email")} />
-        <button className="primary small" disabled={!f.full_name.trim()} onClick={save}>Add</button>
+        <input placeholder="Phone (optional)" value={f.phone} onChange={set("phone")} />
+        <input placeholder="Company" value={f.company_name} onChange={set("company_name")} title="Change it if the person works elsewhere now" />
+      </div>
+      <div className="row">
+        <button className="primary small" disabled={!f.full_name.trim()} onClick={save}>{candidate ? "Save" : "Add"}</button>
+        {note && <span className="muted">{note}</span>}
       </div>
     </div>
   );
@@ -339,7 +429,16 @@ export function ConnectionsImport() {
     setStatus("Reading…");
     try {
       const rows = parseConnections(await file.text());
-      const withUrl = rows.filter((r) => r.linkedin_url);
+      // Contacts edited in the app keep the owner's version (e.g. a connection who changed jobs).
+      const edited = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("contacts").select("linkedin_url")
+          .eq("manually_edited", true).not("linkedin_url", "is", null).range(from, from + 999);
+        if (error) throw new Error(error.message);
+        data.forEach((d) => edited.add(d.linkedin_url as string));
+        if (data.length < 1000) break;
+      }
+      const withUrl = rows.filter((r) => r.linkedin_url && !edited.has(r.linkedin_url));
       for (let i = 0; i < withUrl.length; i += 500) {
         setStatus(`Saving ${Math.min(i + 500, withUrl.length)} of ${withUrl.length}…`);
         const chunk = withUrl.slice(i, i + 500).map((r) => ({ ...r, source: "connections", contact_type: "referral" }));
@@ -348,7 +447,8 @@ export function ConnectionsImport() {
       }
       const companies = new Set(withUrl.map((r) => r.company_name).filter(Boolean)).size;
       setStatus(`Imported ${withUrl.length} connections at ${companies} companies.` +
-        (rows.length > withUrl.length ? ` ${rows.length - withUrl.length} rows without a profile link were skipped.` : ""));
+        (edited.size ? ` Contacts you edited in the app were kept as they are.` : "") +
+        (rows.filter((r) => !r.linkedin_url).length ? ` ${rows.filter((r) => !r.linkedin_url).length} rows without a profile link were skipped.` : ""));
       refresh();
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Import failed.");

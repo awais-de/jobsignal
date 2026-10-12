@@ -5,6 +5,7 @@ import ActionPage from "./ActionPage";
 import Applications from "./Applications";
 import Feed from "./Feed";
 import JobPage from "./JobPage";
+import Lab from "./Lab";
 import Login from "./Login";
 import ManualAdd from "./ManualAdd";
 import ProfilePage from "./Profile";
@@ -29,13 +30,13 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications" | "add" | "profile";
+type View = "feed" | "applications" | "add" | "profile" | "lab";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
 function routeFromHash(): Route {
   const m = window.location.hash.match(JOB_HASH);
   if (m) return { view: "feed", job: m[1] };
-  const view = ({ "#applications": "applications", "#add": "add", "#profile": "profile" } as Record<string, View>)[window.location.hash] ?? "feed";
+  const view = ({ "#applications": "applications", "#add": "add", "#profile": "profile", "#lab": "lab" } as Record<string, View>)[window.location.hash] ?? "feed";
   return { view, job: null };
 }
 
@@ -124,6 +125,7 @@ function Shell() {
           <a href="#" className={!activeJob && view === "feed" ? "active" : ""}>Feed</a>
           <a href="#applications" className={!activeJob && view === "applications" ? "active" : ""}>Applications</a>
           <a href="#add" className={!activeJob && view === "add" ? "active" : ""}>+ Add</a>
+          <a href="#lab" className={!activeJob && view === "lab" ? "active" : ""}>Lab</a>
           <a href="#profile" className={!activeJob && view === "profile" ? "active" : ""}>Profile</a>
         </nav>
         <div className="header-right">
@@ -148,7 +150,7 @@ function Shell() {
       ))}
       {/* The list view stays mounted behind a job tab, so going back keeps its filters and open rows. */}
       <div hidden={!!activeJob}>
-        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : <ProfilePage />}
+        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : view === "lab" ? <Lab /> : <ProfilePage />}
       </div>
     </div>
   );

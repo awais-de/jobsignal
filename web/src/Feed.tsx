@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import FilterBar, { applyFilters, EMPTY, loadFilters, saveFilters, type Filters } from "./Filters";
 import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
-type Tab = "new" | "applied" | "skipped" | "all";
+type Tab = "new" | "applied" | "skipped" | "all" | "explore";
 // Applied jobs live in the Applications view; the timeline still shows them with a badge.
 const TABS: { key: Tab; label: string }[] = [
   { key: "all", label: "Timeline" },
   { key: "new", label: "To triage" },
+  { key: "explore", label: "Explore" },
   { key: "skipped", label: "Skipped" },
 ];
 const TAB_KEY = "jobsignal.feed.tab";
@@ -88,7 +89,10 @@ export default function Feed() {
       .order("first_seen_at", { ascending: false })
       .order("posted_date", { ascending: false, nullsFirst: false })
       .limit(2000);
-    if (tab !== "all") q = q.eq("triage_status", tab);
+    // Explore-lane jobs (title families in Explore mode) only appear in the Explore tab; Skipped shows both.
+    if (tab === "explore") q = q.eq("lane", "explore");
+    else if (tab !== "skipped") q = q.or("lane.is.null,lane.eq.core");
+    if (tab !== "all" && tab !== "explore") q = q.eq("triage_status", tab);
     const { data, error } = await q;
     if (error) setError(error.message);
     else setRows(data as unknown as Posting[]);
@@ -106,6 +110,14 @@ export default function Feed() {
 
   const replace = (p: Posting) => setRows((rs) => rs && rs.map((r) => (r.id === p.id ? p : r)));
   const remove = (id: string) => setRows((rs) => rs && rs.filter((r) => r.id !== id));
+
+  const [familyLabels, setFamilyLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    supabase.from("owner_profile").select("profile").eq("id", 1).maybeSingle().then(({ data }) => {
+      const fams = (data?.profile as { families?: { key: string; label: string }[] } | undefined)?.families ?? [];
+      setFamilyLabels(Object.fromEntries(fams.map((f) => [f.key, f.label])));
+    });
+  }, []);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   useEffect(() => {
@@ -140,7 +152,8 @@ export default function Feed() {
       {rows === null || visible === null ? (
         <p className="empty">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="empty">{tab === "new" ? "Nothing to triage. 🎉" : "Nothing here yet."}</p>
+        <p className="empty">{tab === "new" ? "Nothing to triage. 🎉" : tab === "explore"
+          ? "No explore jobs yet. Set a title family to Explore on the Profile page (or try one in the Title lab)." : "Nothing here yet."}</p>
       ) : visible.length === 0 ? (
         <p className="empty">
           No jobs match these filters. <button className="link" onClick={() => changeFilters(EMPTY)}>Clear filters</button>
@@ -154,12 +167,13 @@ export default function Feed() {
                 {dayLabel(day)}
                 <span className="day-count">
                   {items.length} job{items.length === 1 ? "" : "s"}
-                  {tab === "all" && open > 0 ? ` · ${open} to triage` : ""}
+                  {(tab === "all" || tab === "explore") && open > 0 ? ` · ${open} to triage` : ""}
                 </span>
               </h2>
               <div className="grid">
                 {items.map((p) => (
                   <Card key={p.id} p={p} tab={tab} onChange={replace} onGone={remove} onError={setError}
+                        family={p.lane === "explore" && p.title_family ? familyLabels[p.title_family] ?? p.title_family : undefined}
                         account={accountFor(p.company_name, accounts)} />
                 ))}
               </div>
@@ -174,8 +188,9 @@ export default function Feed() {
   );
 }
 
-function Card({ p, tab, onChange, onGone, onError, account }: {
+function Card({ p, tab, onChange, onGone, onError, account, family }: {
   account?: Account;
+  family?: string;
   p: Posting;
   tab: Tab;
   onChange: (p: Posting) => void;
@@ -201,7 +216,7 @@ function Card({ p, tab, onChange, onGone, onError, account }: {
     }
     if (win && url) win.location.href = url;
     const next = { ...p, triage_status: data.triage_status, skip_reason: data.skip_reason };
-    if (tab !== "all" && next.triage_status !== tab) onGone(p.id);
+    if (tab !== "all" && tab !== "explore" && next.triage_status !== tab) onGone(p.id);
     else onChange(next);
   }
 
@@ -237,6 +252,7 @@ function Card({ p, tab, onChange, onGone, onError, account }: {
       <div className="tags">
         <span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span>
         {p.poster_type === "agency" && <span className="badge">agency</span>}
+        {family && <span className="badge lane-explore" title="Explore family">{family}</span>}
         {p.triage_status !== "new" && (
           <span className="badge">
             {p.triage_status}{p.skip_reason ? `: ${label(p.skip_reason)}` : ""}

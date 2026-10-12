@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { classify, MODE_LABELS, type Family, type FamilyMode } from "./families";
+import { saveProfile } from "./profileStore";
 import { ConnectionsImport } from "./Outreach";
 import { supabase } from "./supabase";
 
@@ -15,6 +17,7 @@ type Profile = {
   skills: Skills;
   watchlist?: Company[];
   outreach?: { sender_name?: string };
+  families?: Family[];
   [key: string]: unknown;
 };
 
@@ -46,21 +49,23 @@ export default function ProfilePage() {
   }, []);
 
   const dirty = profile !== null && JSON.stringify(profile) !== saved;
-  const invalid = profile ? [...profile.titles.allow, ...profile.titles.block].filter(badPattern) : [];
+  const invalid = profile ? [...profile.titles.allow, ...profile.titles.block,
+    ...(profile.families ?? []).flatMap((f) => [...f.titles, ...(f.exclude ?? [])])].filter(badPattern) : [];
 
   async function save() {
     if (!profile || invalid.length) return;
     setBusy(true);
-    const { data, error } = await supabase.from("owner_profile").update({ profile }).eq("id", 1).select("version").single();
+    try {
+      const r = await saveProfile(profile);
+      setProfile(r.profile);
+      setSaved(JSON.stringify(r.profile));
+      setVersion(r.version);
+      setError(null);
+      setNote(r.note);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Saving failed.");
+    }
     setBusy(false);
-    if (error) return setError(error.message);
-    setSaved(JSON.stringify(profile));
-    setVersion(data.version);
-    setError(null);
-    // Re-rank existing jobs with the new skills right away (GitHub workflow, ~1 minute, no email).
-    const { error: rerankError } = await supabase.functions.invoke("trigger-run", { body: { workflow: "rerank" } });
-    setNote(rerankError ? "Saved. Re-ranking will happen with the next run."
-                        : "Saved. Existing jobs are being re-ranked: reload the feed in about a minute.");
   }
 
   if (!profile) return <p className="empty">{error ?? "Loading…"}</p>;
@@ -84,15 +89,21 @@ export default function ProfilePage() {
 
       <section className="card">
         <h3>Target roles</h3>
-        <TitleTester allow={profile.titles.allow} block={profile.titles.block} />
-        <ListEditor label="Titles to include" hint="A job title must match at least one. Plain words work; regular expressions too, e.g. \bdata\b.*engineer"
-                    items={profile.titles.allow} invalid={badPattern}
-                    onChange={(allow) => set({ titles: { ...profile.titles, allow } })} />
-        <ListEditor label="Titles to exclude" hint="A job title matching any of these is dropped (also at watched companies)."
+        <TitleTester allow={profile.titles.allow} block={profile.titles.block} families={profile.families} />
+        {profile.families?.length ? (
+          <FamiliesEditor families={profile.families} onChange={(families) => set({ families })} />
+        ) : (
+          <>
+            <ListEditor label="Titles to include" hint="A job title must match at least one. Plain words work; regular expressions too, e.g. \bdata\b.*engineer"
+                        items={profile.titles.allow} invalid={badPattern}
+                        onChange={(allow) => set({ titles: { ...profile.titles, allow } })} />
+            <ListEditor label="Arbeitsagentur search terms" hint="Free-text searches sent to the Arbeitsagentur, Workday and SmartRecruiters. Broad is fine: the title lists do the filtering."
+                        items={profile.search_terms} onChange={(search_terms) => set({ search_terms })} />
+          </>
+        )}
+        <ListEditor label="Titles to exclude (all families)" hint="A job title matching any of these is dropped (also at watched companies)."
                     items={profile.titles.block} invalid={badPattern}
                     onChange={(block) => set({ titles: { ...profile.titles, block } })} />
-        <ListEditor label="Arbeitsagentur search terms" hint="Free-text searches sent to the Arbeitsagentur, Workday and SmartRecruiters. Broad is fine: the title lists do the filtering."
-                    items={profile.search_terms} onChange={(search_terms) => set({ search_terms })} />
       </section>
 
       <section className="card">
@@ -178,13 +189,17 @@ function ListEditor({ label, hint, items, onChange, invalid }: {
   );
 }
 
-function TitleTester({ allow, block }: { allow: string[]; block: string[] }) {
+function TitleTester({ allow, block, families }: { allow: string[]; block: string[]; families?: Family[] }) {
   const [title, setTitle] = useState("");
   const result = useMemo(() => {
     if (!title.trim()) return null;
     const test = (p: string) => { try { return new RegExp(p, "i").test(title); } catch { return false; } };
     const blocked = block.find(test);
     if (blocked) return { ok: false, text: `Excluded by “${blocked}”` };
+    if (families?.length) {
+      const f = classify(title, families);
+      return f ? { ok: true, text: `Passes: ${f.label} (${MODE_LABELS[f.mode]})` } : { ok: false, text: "No active family matches" };
+    }
     const allowed = allow.find(test);
     return allowed ? { ok: true, text: `Passes (matches “${allowed}”)` } : { ok: false, text: "No include pattern matches" };
   }, [title, allow, block]);
@@ -192,6 +207,55 @@ function TitleTester({ allow, block }: { allow: string[]; block: string[] }) {
     <div className="tester">
       <input placeholder="Test a job title, e.g. Senior Data Engineer (m/w/d)" value={title} onChange={(e) => setTitle(e.target.value)} />
       {result && <span className={`status status-${result.ok ? "green" : "red"}`}>{result.text}</span>}
+    </div>
+  );
+}
+
+/** Title families: what is searched and which titles pass, each Core / Explore / Off. */
+function FamiliesEditor({ families, onChange }: { families: Family[]; onChange: (f: Family[]) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const put = (i: number, patch: Partial<Family>) => onChange(families.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const add = () => {
+    const label = window.prompt("Name of the new family, e.g. Reporting");
+    if (!label?.trim()) return;
+    const key = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    if (families.some((f) => f.key === key)) return;
+    onChange([...families, { key, label: label.trim(), mode: "explore", titles: [], exclude: [], search_terms: [] }]);
+    setOpen(key);
+  };
+  return (
+    <div className="families">
+      <p className="muted">
+        <strong>Core</strong>: digest and main feed. <strong>Explore</strong>: searched and ranked the same way, shown only in the
+        feed's Explore tab. <strong>Off</strong>: not searched. Changing a family also re-checks jobs from the last two weeks.
+      </p>
+      {families.map((f, i) => (
+        <div key={f.key} className={`family family-${f.mode}`}>
+          <div className="family-head">
+            <button className="link" onClick={() => setOpen(open === f.key ? null : f.key)} aria-expanded={open === f.key}>
+              {open === f.key ? "▾" : "▸"} <strong>{f.label}</strong>
+            </button>
+            <span className="muted small">{f.titles.length} title patterns · {f.search_terms.length} search terms</span>
+            <select value={f.mode} onChange={(e) => put(i, { mode: e.target.value as FamilyMode })} aria-label={`Mode of ${f.label}`}>
+              {Object.entries(MODE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          {open === f.key && (
+            <div className="family-body">
+              <ListEditor label="Titles" hint="A title matching any of these belongs to this family (regular expressions work)."
+                          items={f.titles} invalid={badPattern} onChange={(titles) => put(i, { titles })} />
+              <ListEditor label="Search terms" hint="Sent to the Arbeitsagentur, Workday and SmartRecruiters while the family isn't Off."
+                          items={f.search_terms} onChange={(search_terms) => put(i, { search_terms })} />
+              <ListEditor label="Except titles matching" hint="Titles matching these don't count for this family."
+                          items={f.exclude ?? []} invalid={badPattern} onChange={(exclude) => put(i, { exclude })} />
+              <button className="link danger" onClick={() => window.confirm(`Remove the family “${f.label}”?`) && onChange(families.filter((_, j) => j !== i))}>
+                Remove family
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+      <button className="small" onClick={add}>+ Add a family</button>
     </div>
   );
 }

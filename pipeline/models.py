@@ -43,6 +43,10 @@ class Candidate:
     supersedes: list[str] = field(default_factory=list)
     # Extraction and ranking columns (spec 7.5, 7.9), written with the row.
     enrichment: dict[str, Any] = field(default_factory=dict)
+    # Title family and lane (pipeline/families.py): 'core' jobs go to the digest and main feed,
+    # 'explore' jobs only to the app's Explore tab.
+    title_family: str | None = None
+    lane: str = "core"
 
     @property
     def is_new(self) -> bool:

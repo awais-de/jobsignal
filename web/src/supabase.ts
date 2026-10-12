@@ -59,9 +59,11 @@ export type Posting = {
   must_have_skills: string[] | null;
   nice_to_have_skills: string[] | null;
   notes: string | null;   // the job's notepad (labelled sections, see notes.ts)
+  title_family: string | null;
+  lane: "core" | "explore" | null;   // null: from before title families (counts as core)
 };
 
 export const POSTING_COLUMNS =
   "id,source,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
   "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited," +
-  "extraction_status,rank_score,rank_details,german_level,required_years,seniority,must_have_skills,nice_to_have_skills,notes";
+  "extraction_status,rank_score,rank_details,german_level,required_years,seniority,must_have_skills,nice_to_have_skills,notes,title_family,lane";

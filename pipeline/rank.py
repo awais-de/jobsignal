@@ -36,6 +36,17 @@ class SkillIndex:
         return None
 
 
+def keyword_overlap(text: str | None, index: SkillIndex) -> int:
+    """How many of the owner's skills a job text mentions (whole words, any alias). A cheap, LLM-free
+    signal used to decide which explore jobs get analysed first."""
+    if not text:
+        return 0
+    t = text.lower()
+    hits = {canonical for alias, (canonical, _) in index.aliases.items()
+            if len(alias) >= 2 and re.search(rf"(?<![\w+#]){re.escape(alias)}(?![\w+#])", t)}
+    return len(hits)
+
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.lower().strip())
 

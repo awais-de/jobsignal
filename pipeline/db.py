@@ -155,8 +155,22 @@ class Database:
             "select": "id,title,description,contract_type,remote_policy,salary_text,source_data",
             "filter_status": "eq.passed", "extraction_status": "in.(pending,failed)",
             "description": "not.is.null", "deleted_at": "is.null",
-            "first_seen_at": f"gte.{since.isoformat()}", "order": "first_seen_at.desc", "limit": limit,
+            # Core jobs first (old rows have no lane), explore jobs with what budget is left.
+            "first_seen_at": f"gte.{since.isoformat()}", "order": "lane.asc.nullsfirst,first_seen_at.desc", "limit": limit,
         })
+
+    def title_rejected_since(self, since: datetime) -> list[dict[str, Any]]:
+        """Jobs whose only failure was the title list: re-checked when the title families change."""
+        out: list[dict[str, Any]] = []
+        while True:
+            rows = self._req("GET", "/job_postings", params={
+                "select": "id,source,source_job_id,company_name,title,country,contract_type,posted_date,poster_type,"
+                          "source_data,first_seen_at,description_missing",
+                "filter_status": "eq.rejected", "filter_reasons": "eq.{title_not_allowed}", "deleted_at": "is.null",
+                "first_seen_at": f"gte.{since.isoformat()}", "order": "id", "limit": 1000, "offset": len(out)})
+            out += rows
+            if len(rows) < 1000:
+                return out
 
     def update_posting(self, posting_id: str, fields: dict[str, Any]) -> None:
         self._req("PATCH", "/job_postings", params={"id": f"eq.{posting_id}"}, json=fields)
@@ -290,6 +304,8 @@ def _row(c: Candidate) -> dict[str, Any]:
         "company_id": r.source_data.get("company_id"),
         "filter_status": "passed" if c.passed else "rejected",
         "filter_reasons": c.filter_reasons or None,
+        "title_family": c.title_family,
+        "lane": c.lane,
         **c.enrichment,
     }
 

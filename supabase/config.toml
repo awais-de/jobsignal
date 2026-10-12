@@ -429,3 +429,7 @@ verify_jwt = false
 [functions.trigger-run]
 # Verifies the owner session itself (auth /user + app_owner).
 verify_jwt = false
+
+[functions.lab-search]
+# Verifies the owner session itself (auth /user + app_owner).
+verify_jwt = false

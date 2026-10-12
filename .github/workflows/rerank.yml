@@ -1,7 +1,8 @@
 name: rerank
 
-# Started by the app when the profile is saved: re-ranks stored jobs with the new skills.
-# No fetching, no LLM calls, no email.
+# Started by the app when the profile is saved: re-ranks stored jobs with the new skills, and re-checks
+# jobs of the last two weeks against the title families (fetching Arbeitsagentur descriptions for the
+# ones that now pass; capped). No LLM calls, no email.
 on:
   workflow_dispatch: {}
 

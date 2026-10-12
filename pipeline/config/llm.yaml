@@ -13,6 +13,8 @@ stages:
   jd_extraction:
     prompt_version: 'jd-v2'   # bump on any prompt change: invalidates the cache
     max_calls_per_run: 80          # hard cap per run, across providers
+    explore_per_run: 20            # STARTING VALUE: explore-lane jobs analysed per run (best skill overlap
+                                   # first); the rest stay pending for later runs (core jobs always first)
     max_input_chars: 8000          # description is trimmed to this before sending
     providers:                     # tried in order; falls through on rate limit / errors
       - { provider: groq,   model: 'openai/gpt-oss-120b' }

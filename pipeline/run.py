@@ -17,7 +17,7 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Any
@@ -27,7 +27,7 @@ import httpx
 from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
 from pipeline.enrich import Enricher
-from pipeline.rank import score
+from pipeline.rank import keyword_overlap, score
 from pipeline.extract.jd import STAGE
 from pipeline.llm.router import build_router
 from pipeline.db import Database
@@ -75,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
             log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set.")
             return 1
         enricher = _enricher(profile, db)
-        log.info("reranked: %d", _rerank(db, enricher, profile, datetime.now(timezone.utc)))
+        now = datetime.now(timezone.utc)
+        log.info("refiltered: %d, reranked: %d", _refilter(db, profile, sources_cfg, now),
+                 _rerank(db, enricher, profile, now))
         return 0
     if args.backlog_only:
         return backlog_only(profile, write=not args.dry_run)
@@ -215,8 +217,14 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         passed = [c for c in passed if c.passed]
 
     # 5. extraction, dealbreakers, ranking (spec 7.5, 7.9). New postings first, then the backlog.
+    #    Explore-lane jobs get a smaller budget: those mentioning most of the owner's skills first;
+    #    the rest stay pending and the backlog picks them up on later runs.
     enricher = _enricher(profile, db)
-    for c in passed:
+    explore = sorted((c for c in passed if c.lane == "explore"),
+                     key=lambda c: keyword_overlap(c.raw.description, enricher.index), reverse=True)
+    explore_cap = int(load_config("llm.yaml")["stages"][STAGE].get("explore_per_run", 20))
+    to_extract = [c for c in passed if c.lane != "explore"] + explore[:explore_cap]
+    for c in to_extract:
         cols, reason = enricher.run(c.raw.title, c.raw.description, source_contract=c.raw.contract_type,
                                     remote_policy=c.raw.remote_policy, salary_text=c.raw.salary_text)
         c.enrichment = cols
@@ -240,7 +248,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         reverse=True,
     )
     # A watched company's first load goes to the app timeline, not the email (owner decision 2026-10-11).
-    surface = [c for c in surface if not c.raw.source_data.get("initial_load")
+    # Explore-lane jobs are only shown in the app (owner decision 2026-10-12).
+    surface = [c for c in surface if c.lane == "core" and not c.raw.source_data.get("initial_load")
                and not c.raw.source_data.get("no_digest")]           # superseded copy was already emailed
     min_score = float(profile["feed"].get("min_rank_score", 0))
     surface = [c for c in surface if (c.enrichment.get("rank_score") or 0) >= min_score
@@ -265,6 +274,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         _flush_router(page_router, db, PAGE_STAGE)
         if disc_cfg.get("enabled"):
             stats["discovery"] = _discover(db, candidates, disc_cfg, now)
+        stats["refiltered"] = _refilter(db, profile, sources_cfg, now)
         stats["reranked"] = _rerank(db, enricher, profile, now)
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
@@ -298,6 +308,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         "known": len(known_ids),
         "new": len(new),
         "passed": len(passed),
+        "passed_explore": sum(c.lane == "explore" for c in passed),
         "surfaced": len(surface),
         "rejected": dict(reasons),
         "details_ok": detail_ok,
@@ -384,6 +395,48 @@ def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: date
         db.update_posting(r["id"], {"fit_score": fit, "rank_score": rank, "rank_details": details})
         changed += 1
     return changed
+
+
+REFILTER_DAYS = 14
+REFILTER_DETAIL_CAP = 40
+
+
+def _refilter(db: Database, profile: dict[str, Any], sources_cfg: dict[str, Any], now: datetime) -> int:
+    """After the title families change, jobs of the last two weeks that failed only on the title are
+    checked again; those that now pass become pending (the backlog analyses them). Arbeitsagentur rows
+    never had their description fetched, so it is fetched now (capped)."""
+    ba = BundesagenturSource(sources_cfg.get("ba_api", {}))
+    filters = HardFilters(profile, first_run=False, now=now)
+    details = changed = 0
+    for r in db.title_rejected_since(now - timedelta(days=REFILTER_DAYS)):
+        raw = RawPosting(source=r["source"], source_job_id=r["source_job_id"], company_name=r["company_name"],
+                         title=r["title"], country=r["country"], contract_type=r["contract_type"],
+                         posted_date=date.fromisoformat(r["posted_date"]) if r["posted_date"] else None,
+                         poster_type=r["poster_type"], source_data=r["source_data"] or {})
+        c = Candidate(raw=raw, dedupe_hash="")
+        # Judged as on the day it was found (freshness then, not now).
+        filters.now = _ts(r["first_seen_at"])
+        if filters.reason(c):
+            continue
+        fields: dict[str, Any] = {"filter_status": "passed", "filter_reasons": None, "title_family": c.title_family,
+                                  "lane": c.lane, "extraction_status": "pending"}
+        if r["source"] == ba.name and r["description_missing"] and details < REFILTER_DETAIL_CAP:
+            try:
+                ba.fetch_details(raw)
+                details += 1
+                fields.update(description=raw.description, description_missing=raw.description is None,
+                              poster_type=raw.poster_type, source_data=raw.source_data)
+                if raw.apply_url:
+                    fields["apply_url"] = raw.apply_url
+            except (httpx.HTTPError, ValueError):
+                pass
+        db.update_posting(r["id"], fields)
+        changed += 1
+    return changed
+
+
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], now: datetime) -> dict[str, int]:

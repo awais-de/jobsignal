@@ -6,13 +6,14 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from pipeline.families import classify, load_families
 from pipeline.models import Candidate
 
 
 class HardFilters:
     def __init__(self, profile: dict[str, Any], first_run: bool, now: datetime | None = None):
         titles = profile["titles"]
-        self.allow = [re.compile(p, re.IGNORECASE) for p in titles.get("allow", [])]
+        self.families = load_families(profile)
         self.block = [re.compile(p, re.IGNORECASE) for p in titles.get("block", [])]
         loc = profile["location"]
         self.country = loc.get("country", "DE")
@@ -29,9 +30,13 @@ class HardFilters:
         # yesterday is new by definition, so the freshness window never applies to them.
         watched = raw.source == "careers"
         mode = raw.source_data.get("filter_mode", "watch") if watched else "all"
+        family = classify(raw.title, self.families)
+        c.title_family = family.key if family else None
+        # A watched company's job outside every family still counts as core (the owner chose the company).
+        c.lane = family.mode if family else "core"
         if mode == "none":
             return None
-        if mode == "all" and not any(p.search(raw.title) for p in self.allow):
+        if mode == "all" and family is None:
             return "title_not_allowed"
         if any(p.search(raw.title) for p in self.block):
             return "title_blocked"

@@ -77,12 +77,26 @@ def validate_profile(profile: Any, origin: str) -> dict[str, Any]:
     if missing:
         raise ConfigError(f"Profile from {origin} is missing keys: {', '.join(missing)}")
     for key in ("allow", "block"):
-        good = []
-        for pattern in profile["titles"].get(key) or []:
-            try:
-                re.compile(pattern)
-                good.append(pattern)
-            except re.error:
-                log.warning("profile: an invalid title %s pattern was skipped", key)
-        profile["titles"][key] = good
+        profile["titles"][key] = _valid_patterns(profile["titles"].get(key), f"title {key}")
+    # Title families (pipeline/families.py): when present, they define what is searched and which
+    # titles pass; titles.allow and search_terms become their union (used by the careers prefilter).
+    families = profile.get("families")
+    if families:
+        for f in families:
+            f["titles"] = _valid_patterns(f.get("titles"), "family title")
+            f["exclude"] = _valid_patterns(f.get("exclude"), "family exclude")
+        from pipeline.families import active_search_terms, active_title_patterns, load_families
+        profile["titles"]["allow"] = active_title_patterns(families)
+        profile["search_terms"] = active_search_terms(load_families(profile))
     return profile
+
+
+def _valid_patterns(patterns: list[str] | None, what: str) -> list[str]:
+    good = []
+    for pattern in patterns or []:
+        try:
+            re.compile(pattern)
+            good.append(pattern)
+        except re.error:
+            log.warning("profile: an invalid %s pattern was skipped", what)
+    return good

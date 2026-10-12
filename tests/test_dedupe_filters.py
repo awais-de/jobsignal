@@ -111,7 +111,7 @@ def test_undated_posting_held_back_on_first_run_only():
 
 
 # -- watched companies: per-company filter modes (owner decisions 2026-10-11) ---------
-def watched(title, mode, country="DE", posted=date(2026, 9, 1)):
+def watched(title, mode, country="DE", posted=date(2026, 10, 9)):
     r = raw(title=title, country=country, posted=posted, source="careers")
     r.source_data["filter_mode"] = mode
     return r
@@ -130,8 +130,20 @@ def test_watchlist_filter_modes(title, mode, country, reason):
     assert (c.filter_reasons[0] if c.filter_reasons else None) == reason
 
 
-def test_watched_jobs_skip_freshness():
-    assert run([watched("Data Engineer", "all", posted=date(2026, 8, 1))])[0].passed
+def test_watched_jobs_with_an_old_posting_date_are_not_fresh():
+    assert run([watched("Data Engineer", "all", posted=date(2026, 8, 1))])[0].filter_reasons == ["not_fresh"]
+    assert run([watched("Data Engineer", "watch", posted=date(2026, 10, 1))])[0].filter_reasons == ["not_fresh"]
+
+
+def test_unfiltered_watched_company_keeps_every_job():
+    assert run([watched("Werkstudent Marketing", "none", posted=date(2026, 8, 1))])[0].passed
+
+
+def test_undated_watched_job_is_new_except_on_the_first_load():
+    assert run([watched("Data Engineer", "all", posted=None)])[0].passed
+    first = watched("Data Engineer", "all", posted=None)
+    first.source_data["initial_load"] = True
+    assert run([first])[0].filter_reasons == ["not_fresh"]
 
 
 # -- cross-source merging (spec 7.3.2) ----------------------------------------------

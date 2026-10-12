@@ -26,8 +26,7 @@ class HardFilters:
     def reason(self, c: Candidate) -> str | None:
         raw = c.raw
         # Watched companies (owner decisions 2026-10-11), per company: 'all' = normal filters,
-        # 'watch' = no title allow-list, 'none' = no filters. A job link that wasn't there
-        # yesterday is new by definition, so the freshness window never applies to them.
+        # 'watch' = no title allow-list, 'none' = no filters.
         watched = raw.source == "careers"
         mode = raw.source_data.get("filter_mode", "watch") if watched else "all"
         family = classify(raw.title, self.families)
@@ -44,7 +43,16 @@ class HardFilters:
             return "location"
         if raw.contract_type and raw.contract_type not in self.contract_types:
             return "contract_type"
-        if not watched and not self._fresh(raw.posted_date):
+        if watched:
+            # Owner decision 2026-10-12: a company site's job with a posting date gets the same
+            # freshness window (a company's first load brought in jobs posted weeks ago). An undated
+            # job counts as new from the second day on (the link wasn't there yesterday), but not
+            # on the company's first load.
+            if raw.posted_date is not None and not self._fresh(raw.posted_date):
+                return "not_fresh"
+            if raw.posted_date is None and raw.source_data.get("initial_load"):
+                return "not_fresh"
+        elif not self._fresh(raw.posted_date):
             return "not_fresh"
         if self.exclude_agencies and raw.poster_type == "agency":
             return "agency"

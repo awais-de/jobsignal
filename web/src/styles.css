@@ -497,3 +497,20 @@ ul.job-picks { list-style: none; padding: 0; margin: 0; max-height: 220px; overf
   .works table.apps th { letter-spacing: 0; text-transform: none; font-size: 11px; }
   .works table.apps th, .works table.apps td { padding: 4px 5px; }
 }
+
+/* People */
+.people { max-width: 980px; }
+ul.people-list { list-style: none; padding: 0; margin: 6px 0; }
+ul.people-list li { border-top: 1px solid var(--border); padding: 6px 0; }
+.person-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.person-line .status { text-decoration: none; }
+.company-group { margin-bottom: 10px; }
+.company-jobs { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 2px; }
+textarea.person-notes {
+  width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; margin-top: 4px;
+}
+.people .register input, .people .register select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}

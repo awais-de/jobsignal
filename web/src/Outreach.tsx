@@ -20,7 +20,7 @@ export type Contact = {
   phone: string | null;
   deleted_at: string | null;
 };
-const CONTACT_COLUMNS = "id,full_name,role_title,contact_type,source,company_name,linkedin_url,email,phone,deleted_at";
+export const CONTACT_COLUMNS = "id,full_name,role_title,contact_type,source,company_name,linkedin_url,email,phone,deleted_at";
 
 export type Ping = {
   id: string;
@@ -38,13 +38,13 @@ export const PING_COLUMNS = "id,application_id,job_posting_id,contact_id,channel
 
 type Channel = "linkedin" | "email" | "phone" | "other";
 const CHANNELS: Record<Channel, string> = { linkedin: "LinkedIn", email: "Email", phone: "Phone", other: "Other" };
-const TYPES: Record<string, string> = {
+export const TYPES: Record<string, string> = {
   recruiter: "Recruiter", hiring_manager: "Hiring manager", team_member: "Team member", referral: "Referral", other: "Contact",
 };
-const SOURCES: Record<string, string> = { job_ad: "named in the job ad", connections: "your connection", manual: "added by you", email: "from an email" };
+export const SOURCES: Record<string, string> = { job_ad: "named in the job ad", connections: "your connection", manual: "added by you", email: "from an email" };
 
 /** One person (or team inbox) worth pinging, from any source; saved as a contact when first pinged. */
-type Candidate = {
+export type Candidate = {
   key: string;
   name: string | null;
   role: string | null;
@@ -330,7 +330,7 @@ function LogButton({ best, onLog }: { best: Channel; onLog: (c: Channel) => void
 /** Add a person, or edit one from the list (a person parsed from the ad is saved on first edit).
  *  A LinkedIn link fills in the name from the link itself. A link that is already saved (e.g. a
  *  connection listed at their old company) updates that contact instead of failing. */
-function ContactForm({ company, candidate, onSaved, onError }: {
+export function ContactForm({ company, candidate, onSaved, onError }: {
   company: string;
   candidate: Candidate | null;
   onSaved: (c: Contact) => void;

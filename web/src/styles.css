@@ -482,8 +482,18 @@ blockquote.reply-message { border-left-color: var(--apply); }
 }
 .responses .register textarea { width: 100%; resize: vertical; }
 ul.job-picks { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow-y: auto; font-size: 13px; }
-.works { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 8px 0; }
+.works { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 12px; margin: 8px 0; }
+/* Each table sits in its own box: a box never grows past its grid column (min-width: 0) and scrolls
+   sideways if a table is ever wider, so tables can't overlap whatever their column count. */
+.works-cell { min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+.works-cell table.apps { margin: 0; }
+.works-cell table.apps tr:last-child td { border-bottom: none; }
 .works table.apps { font-size: 13px; table-layout: auto; }
 .works table.apps th, .works table.apps td { padding: 5px 8px; }
 .works table.apps td:not(:first-child), .works table.apps th:not(:first-child) { text-align: right; width: 1%; white-space: nowrap; }
 .works-card { display: block; overflow: visible; }
+@media (max-width: 480px) {
+  .works table.apps { font-size: 12px; }
+  .works table.apps th { letter-spacing: 0; text-transform: none; font-size: 11px; }
+  .works table.apps th, .works table.apps td { padding: 4px 5px; }
+}

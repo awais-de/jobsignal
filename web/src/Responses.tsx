@@ -301,18 +301,18 @@ function WhatWorks({ pings }: { pings: Ping[] }) {
             if (p.status === "sent" && !v.replied.has(person(p))) v.waiting.add(person(p));
           }
           return (
-            <table key={label} className="apps">
-              <thead><tr><th>{label}</th><th>People</th><th>Replied</th><th>Waiting</th><th>Rate</th></tr></thead>
+            <div key={label} className="works-cell"><table className="apps">
+              <thead><tr><th>{label}</th><th>Rate</th><th>People</th><th>Replied</th><th>Waiting</th></tr></thead>
               <tbody>
                 {[...g.entries()].sort((a, b) => b[1].all.size - a[1].all.size).map(([k, v]) => (
                   <tr key={k}>
-                    <td>{k}</td><td>{v.all.size}</td><td>{v.replied.size}</td><td>{v.waiting.size}</td>
-                    <td>{`${Math.round((100 * v.replied.size) / v.all.size)}%`}</td>
+                    <td>{k}</td><td className="strong">{`${Math.round((100 * v.replied.size) / v.all.size)}%`}</td>
+                    <td>{v.all.size}</td><td>{v.replied.size}</td><td>{v.waiting.size}</td>
                   </tr>
                 ))}
                 {g.size === 0 && <tr><td colSpan={5} className="muted">Not enough data yet</td></tr>}
               </tbody>
-            </table>
+            </table></div>
           );
         })}
       </div>

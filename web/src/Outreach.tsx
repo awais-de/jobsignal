@@ -159,6 +159,7 @@ export default function OutreachPanel({ job, applicationId, sender }: {
     if (!contactId) return;
     const { data, error } = await supabase.from("outreach").insert({
       job_posting_id: job.id, application_id: applicationId, contact_id: contactId, channel, message_text: message(c),
+      kind: applicationId ? "post_apply" : "pre_apply", lang,
     }).select(PING_COLUMNS + ",contacts(full_name,role_title)").single();
     if (error) return setError(error.message);
     setPings((ps) => [data as unknown as Ping, ...ps]);

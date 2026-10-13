@@ -457,3 +457,29 @@ ul.lab-list .ok { color: var(--apply); font-weight: 700; }
 .meter-fill { height: 100%; background: var(--accent); }
 .meter-fill.high { background: var(--danger); }
 table.usage-days { margin-top: 8px; max-width: 420px; }
+
+/* Responses */
+.responses { max-width: 980px; }
+.responses-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.responses-bar h2 { margin: 0; font-size: 18px; }
+.responses-bar .search {
+  flex: 1 1 280px; font: inherit; font-size: 15px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+}
+.responses .card.person { margin-bottom: 10px; }
+.person-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+ul.person-pings { list-style: none; padding: 0; margin: 6px 0 0; }
+ul.person-pings li { border-top: 1px solid var(--border); padding: 6px 0; }
+.ping-line .status { margin-left: 8px; }
+blockquote.sent-message, blockquote.reply-message {
+  margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--border); background: var(--bg);
+  white-space: pre-wrap; font-size: 13px;
+}
+blockquote.reply-message { border-left-color: var(--apply); }
+.responses .register input, .responses .register select, .responses .register textarea {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+}
+.responses .register textarea { width: 100%; resize: vertical; }
+ul.job-picks { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow-y: auto; font-size: 13px; }
+.works { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }

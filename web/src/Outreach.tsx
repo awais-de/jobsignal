@@ -212,7 +212,11 @@ export default function OutreachPanel({ job, applicationId, sender }: {
     <section className="outreach">
       <div className="notepad-head">
         <h2>Reach out</h2>
-        <span className="muted">{pings.length ? `${pings.length} ping${pings.length > 1 ? "s" : ""} sent` : "Nobody contacted yet"}</span>
+        <span className="muted">{pings.length ? (() => {
+          const people = new Set(pings.map((p) => p.contact_id)).size;
+          const replied = new Set(pings.filter((p) => p.status === "replied").map((p) => p.contact_id)).size;
+          return `${people} contacted · ${replied} replied`;
+        })() : "Nobody contacted yet"}</span>
         <select value={lang} onChange={(e) => setLang(e.target.value as "de" | "en")} aria-label="Message language">
           <option value="de">Deutsch</option>
           <option value="en">English</option>

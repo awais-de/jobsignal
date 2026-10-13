@@ -327,7 +327,7 @@ export default function Applications() {
                     <td>{a.jd_snapshot ? <span title="Job description stored">✓</span>
                                        : <span className="badge warn" title="Open the row to paste it">missing</span>}</td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <ReachCell reach={reach(a.id)} n={(pingsByApp.get(a.id) ?? []).length}
+                      <ReachCell reach={reach(a.id)} pings={pingsByApp.get(a.id) ?? []}
                                  active={isActive(st?.event_type ?? "drafted") && st?.event_type !== "drafted"} href={`#job/${a.job_posting_id}`} />
                     </td>
                     <td><span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span></td>
@@ -530,13 +530,16 @@ function InterviewForm({ type, onSave, onCancel }: {
   );
 }
 
-function ReachCell({ reach, n, active, href }: { reach: Reach; n: number; active: boolean; href: string }) {
+function ReachCell({ reach, pings, active, href }: { reach: Reach; pings: Ping[]; active: boolean; href: string }) {
+  const people = new Set(pings.map((p) => p.contact_id)).size;
+  const replied = new Set(pings.filter((p) => p.status === "replied").map((p) => p.contact_id)).size;
   if (reach === "none") {
     return active ? <a className="badge warn" href={href} title="Open the job to see who to ping">reach out</a> : <span className="muted">–</span>;
   }
   if (reach === "due") return <a className="status status-orange" href={href}>follow up</a>;
-  if (reach === "replied") return <a className="status status-green" href={href}>replied</a>;
-  return <a className="muted" href={href}>{n} sent</a>;
+  // Per person: "1 of 4 replied", not just "replied".
+  if (reach === "replied") return <a className="status status-green" href={href}>{replied} of {people} replied</a>;
+  return <a className="muted" href={href}>{people} contacted</a>;
 }
 
 /** Local YYYY-MM-DD for a date input. */

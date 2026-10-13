@@ -263,15 +263,18 @@ function LogElsewhere({ onSaved, onError }: { onSaved: () => void; onError: (m: 
 
 /** Reply rates by message variant, channel, kind of contact and language. */
 function WhatWorks({ pings }: { pings: Ping[] }) {
-  // A ping counts once it had a chance: replied, marked no reply, or sent 7+ days ago.
-  const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
-  const judged = pings.filter((p) => p.status !== "sent" || p.sent_at <= cutoff);
+  // Per person (owner decision 2026-10-13): everyone you messaged counts from the moment you messaged
+  // them, so 1 reply out of 4 people is 25%. A person messaged for several jobs counts once per group,
+  // as replied if they replied to any of those messages.
   const dims: [string, (p: Ping) => string][] = [
     ["Message", (p) => KINDS[p.kind ?? "other"] ?? "Other"],
     ["Channel", (p) => CHANNELS[p.channel] ?? p.channel],
     ["Contact", (p) => TYPES[p.contacts?.contact_type ?? "other"] ?? "Other"],
     ["Language", (p) => (p.lang === "de" ? "German" : p.lang === "en" ? "English" : "Unknown")],
   ];
+  const person = (p: Ping) => p.contacts?.id ?? p.id;
+  const people = new Set(pings.map(person)).size;
+  const repliedPeople = new Set(pings.filter((p) => p.status === "replied").map(person)).size;
   const outcomes = new Map<string, number>();
   pings.filter((p) => p.status === "replied").forEach((p) => outcomes.set(p.reply_outcome ?? "unspecified", (outcomes.get(p.reply_outcome ?? "unspecified") ?? 0) + 1));
 
@@ -279,27 +282,35 @@ function WhatWorks({ pings }: { pings: Ping[] }) {
     <section className="card works-card">
       <h3>What works</h3>
       <p className="muted small">
-        Reply rate per group, counting pings that got a reply, were marked "no reply", or are 7+ days old ({judged.length} of {pings.length} so far).
-        With few pings, treat differences as hints, not proof.
+        Per person: {repliedPeople} of {people} people replied ({people ? Math.round((100 * repliedPeople) / people) : 0}%).
+        Everyone you messaged counts, including those still waiting, so rates can only go up as replies arrive.
+        With few people, treat differences as hints, not proof.
       </p>
       <div className="works">
         {dims.map(([label, key]) => {
-          const g = new Map<string, { n: number; r: number }>();
-          for (const p of judged) {
+          const g = new Map<string, { all: Set<string>; replied: Set<string>; waiting: Set<string> }>();
+          for (const p of pings) {
             const k = key(p);
-            const v = g.get(k) ?? { n: 0, r: 0 };
-            v.n++;
-            if (p.status === "replied") v.r++;
+            const v = g.get(k) ?? { all: new Set(), replied: new Set(), waiting: new Set() };
+            v.all.add(person(p));
+            if (p.status === "replied") v.replied.add(person(p));
             g.set(k, v);
+          }
+          for (const p of pings) {
+            const v = g.get(key(p))!;
+            if (p.status === "sent" && !v.replied.has(person(p))) v.waiting.add(person(p));
           }
           return (
             <table key={label} className="apps">
-              <thead><tr><th>{label}</th><th>Sent</th><th>Replied</th><th>Rate</th></tr></thead>
+              <thead><tr><th>{label}</th><th>People</th><th>Replied</th><th>Waiting</th><th>Rate</th></tr></thead>
               <tbody>
-                {[...g.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, v]) => (
-                  <tr key={k}><td>{k}</td><td>{v.n}</td><td>{v.r}</td><td>{v.n ? `${Math.round((100 * v.r) / v.n)}%` : "–"}</td></tr>
+                {[...g.entries()].sort((a, b) => b[1].all.size - a[1].all.size).map(([k, v]) => (
+                  <tr key={k}>
+                    <td>{k}</td><td>{v.all.size}</td><td>{v.replied.size}</td><td>{v.waiting.size}</td>
+                    <td>{`${Math.round((100 * v.replied.size) / v.all.size)}%`}</td>
+                  </tr>
                 ))}
-                {g.size === 0 && <tr><td colSpan={4} className="muted">Not enough data yet</td></tr>}
+                {g.size === 0 && <tr><td colSpan={5} className="muted">Not enough data yet</td></tr>}
               </tbody>
             </table>
           );

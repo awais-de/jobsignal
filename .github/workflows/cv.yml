@@ -37,8 +37,10 @@ jobs:
         if: steps.tex-cache.outputs.cache-hit != 'true'
         run: |
           wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh > /dev/null
+          # The rest (base LaTeX, latexsym, glyphtounicode) ships with TinyTeX; anything else the CV
+          # needs is installed on demand by pipeline/cv_compile.py.
           ~/.TinyTeX/bin/*/tlmgr install titlesec enumitem xcolor hyperref geometry babel-german babel-english \
-            latexsym cm-super ec > /dev/null
+            cm-super > /dev/null
       - name: Compile
         run: |
           export PATH="$(echo ~/.TinyTeX/bin/*):$PATH"

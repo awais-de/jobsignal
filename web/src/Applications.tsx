@@ -209,7 +209,7 @@ export default function Applications() {
     setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, applied_at: iso } : a)));
   }
 
-  async function editEvent(ev: Event, fields: Partial<Pick<Event, "occurred_at">>) {
+  async function editEvent(ev: Event, fields: Partial<Pick<Event, "occurred_at" | "scheduled_for" | "interview_kind">>) {
     const { error } = await supabase.from("application_events").update(fields).eq("id", ev.id);
     if (error) return setError(error.message);
     setEvents((es) => es.map((e) => (e.id === ev.id ? { ...e, ...fields } : e))
@@ -356,6 +356,7 @@ export default function Applications() {
                       <td colSpan={12}>
                         <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}
                                 onJd={(jd) => patch(a, { jd_snapshot: jd })} onEventDate={(e, iso) => editEvent(e, { occurred_at: iso })}
+                                onInterview={(e, f) => editEvent(e, f)}
                                 onPosting={(f) => savePosting(a, f)} onApplied={(d) => saveAppliedDate(a, d)}
                                 onDelete={() => deleteApp(a)}>
                           {scheduling?.appId === a.id && (
@@ -394,7 +395,8 @@ export default function Applications() {
   );
 }
 
-function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied, onDelete, children }: {
+function Detail({ app, events, onNotes, onJd, onEventDate, onInterview, onPosting, onApplied, onDelete, children }: {
+  onInterview: (e: Event, f: { scheduled_for?: string | null; interview_kind?: string | null }) => void;
   app: App;
   events: Event[];
   onNotes: (n: string) => void;
@@ -414,7 +416,9 @@ function Detail({ app, events, onNotes, onJd, onEventDate, onPosting, onApplied,
             <li key={e.id}>
               <EventDate value={e.occurred_at} onSave={(iso) => onEventDate(e, iso)} />{" "}
               <strong>{EVENT_LABELS[e.event_type] ?? e.event_type}</strong>
-              {(e.scheduled_for || e.interview_kind) && (
+              {INTERVIEW_EVENTS.has(e.event_type) ? (
+                <InterviewWhen e={e} onSave={(f) => onInterview(e, f)} />
+              ) : (e.scheduled_for || e.interview_kind) && (
                 <span className="muted">
                   {" "}· {[e.interview_kind && INTERVIEW_KINDS[e.interview_kind],
                           e.scheduled_for && `on ${fmt(e.scheduled_for, true)}`].filter(Boolean).join(" ")}
@@ -540,6 +544,40 @@ function ReachCell({ reach, pings, active, href }: { reach: Reach; pings: Ping[]
   // Per person: "1 of 4 replied", not just "replied".
   if (reach === "replied") return <a className="status status-green" href={href}>{replied} of {people} replied</a>;
   return <a className="muted" href={href}>{people} contacted</a>;
+}
+
+/** An interview event's time and kind, set or corrected in place (emails don't always carry the time). */
+function InterviewWhen({ e, onSave }: { e: Event; onSave: (f: { scheduled_for?: string | null; interview_kind?: string | null }) => void }) {
+  const [editing, setEditing] = useState(false);
+  const local = (iso: string) => {
+    const d = new Date(iso);
+    return `${toDay(iso)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const [when, setWhen] = useState(e.scheduled_for ? local(e.scheduled_for) : "");
+  const [kind, setKind] = useState(e.interview_kind ?? "");
+  if (!editing) {
+    return (
+      <span className="muted">
+        {" "}· {[e.interview_kind && INTERVIEW_KINDS[e.interview_kind], e.scheduled_for ? `on ${fmt(e.scheduled_for, true)}` : null]
+          .filter(Boolean).join(" ") || "time not set"}{" "}
+        <button className="link" onClick={() => setEditing(true)}>{e.scheduled_for ? "change" : "set time"}</button>
+      </span>
+    );
+  }
+  return (
+    <span className="row interview-when">
+      <input type="datetime-local" value={when} onChange={(x) => setWhen(x.target.value)} aria-label="Interview date and time" />
+      <select value={kind} onChange={(x) => setKind(x.target.value)} aria-label="Kind of interview">
+        <option value="">Kind…</option>
+        {Object.entries(INTERVIEW_KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <button className="primary small" onClick={() => {
+        onSave({ scheduled_for: when ? new Date(when).toISOString() : null, interview_kind: kind || null });
+        setEditing(false);
+      }}>Save</button>
+      <button className="link" onClick={() => setEditing(false)}>Cancel</button>
+    </span>
+  );
 }
 
 /** Local YYYY-MM-DD for a date input. */

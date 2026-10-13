@@ -514,3 +514,8 @@ textarea.person-notes {
   font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
 }
+.interview-when { display: inline-flex; margin-left: 6px; }
+.interview-when input, .interview-when select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px;
+}

@@ -276,7 +276,7 @@ function WhatWorks({ pings }: { pings: Ping[] }) {
   pings.filter((p) => p.status === "replied").forEach((p) => outcomes.set(p.reply_outcome ?? "unspecified", (outcomes.get(p.reply_outcome ?? "unspecified") ?? 0) + 1));
 
   return (
-    <section className="card">
+    <section className="card works-card">
       <h3>What works</h3>
       <p className="muted small">
         Reply rate per group, counting pings that got a reply, were marked "no reply", or are 7+ days old ({judged.length} of {pings.length} so far).

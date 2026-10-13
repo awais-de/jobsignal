@@ -1,0 +1,49 @@
+name: cv-compile
+
+# Started by the app's CV builder: compiles one cv_builds row to PDF with pdflatex (TinyTeX, cached).
+# The CV is personal and these logs are public: pipeline/cv_compile.py never prints LaTeX output.
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'cv_builds id'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cv-${{ inputs.build_id }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: TeX (TinyTeX, cached)
+        id: tex-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.TinyTeX
+          key: tinytex-v1
+      - name: Install TinyTeX and the template's packages
+        if: steps.tex-cache.outputs.cache-hit != 'true'
+        run: |
+          wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh > /dev/null
+          ~/.TinyTeX/bin/*/tlmgr install titlesec enumitem xcolor hyperref geometry babel-german babel-english \
+            latexsym cm-super ec > /dev/null
+      - name: Compile
+        run: |
+          export PATH="$(echo ~/.TinyTeX/bin/*):$PATH"
+          python -m pipeline.cv_compile "$BUILD_ID"
+        env:
+          BUILD_ID: ${{ inputs.build_id }}      # via env, never interpolated into the script
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}

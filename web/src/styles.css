@@ -519,3 +519,32 @@ textarea.person-notes {
   font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px;
 }
+
+/* CV builder */
+.pane-tabs { margin-bottom: 8px; }
+.cv-builder .notepad-head select {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px;
+}
+.cv-builder textarea, .cv-field input {
+  width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; resize: vertical;
+}
+.cv-builder textarea.mono, textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.cv-field { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.cv-section { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+.cv-section h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.cv-row, .cv-entry { margin-bottom: 8px; }
+.cv-row.off, .cv-entry.off > .check { opacity: 0.55; }
+.cv-entry > .check, .cv-row > .check { display: flex; gap: 6px; align-items: baseline; font-size: 14px; margin-bottom: 4px; }
+.cv-bullet { display: flex; gap: 6px; align-items: flex-start; margin: 3px 0 3px 18px; }
+.cv-bullet input[type="checkbox"] { margin-top: 4px; }
+.cv-bullet.off .cv-bullet-text { color: var(--muted); font-size: 13px; }
+.cv-bullet-text { font-size: 13px; }
+.keywords { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 10px; }
+ul.builds { list-style: none; padding: 0; margin: 8px 0 0; font-size: 13px; }
+ul.builds li { padding: 5px 0; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+pre.build-error { flex-basis: 100%; white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 6px 8px; border-radius: 6px; margin: 0; }
+ul.base-list { list-style: none; padding: 0; margin: 6px 0; font-size: 14px; }
+ul.base-list li { padding: 5px 0; border-top: 1px solid var(--border); }
+.profile textarea.mono { width: 100%; resize: vertical; }

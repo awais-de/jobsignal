@@ -119,3 +119,37 @@ function setup() {
   ScriptApp.newTrigger('processInbox').timeBased().everyMinutes(15).create();
   processInbox();
 }
+
+/**
+ * Web app endpoint (Deploy → New deployment → Web app; execute as me, access: anyone). jobsignal's
+ * cv-save function posts a compiled CV here with the shared INGEST_SECRET; the PDF is saved to the
+ * Drive folder "Resumes" (or Script Property RESUMES_FOLDER_ID) and shared as "anyone with the link
+ * can view", so the link opens from anywhere.
+ */
+function doPost(e) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (!req.secret || req.secret !== props.getProperty('INGEST_SECRET')) return jsonOut({ error: 'forbidden' });
+    if (req.action !== 'save_cv') return jsonOut({ error: 'unknown_action' });
+    const blob = Utilities.newBlob(Utilities.base64Decode(req.pdf), 'application/pdf', req.name || 'CV.pdf');
+    const file = resumesFolder(props).createFile(blob);
+    file.setDescription(req.description || '');
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return jsonOut({ id: file.getId(), url: 'https://drive.google.com/file/d/' + file.getId() + '/view' });
+  } catch (err) {
+    return jsonOut({ error: String(err && err.message || err).slice(0, 300) });
+  }
+}
+
+function resumesFolder(props) {
+  const id = props.getProperty('RESUMES_FOLDER_ID');
+  if (id) return DriveApp.getFolderById(id);
+  const it = DriveApp.getFoldersByName('Resumes');
+  if (!it.hasNext()) throw new Error('No Drive folder named "Resumes" (or set RESUMES_FOLDER_ID).');
+  return it.next();
+}
+
+function jsonOut(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}

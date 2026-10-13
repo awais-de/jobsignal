@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDate, label as skipLabel, Why } from "./Feed";
 import { buildTailorPrompt, emptyNotes, NOTE_FIELDS, notesEqual, parseNotes, serializeNotes, type Notes } from "./notes";
+import CvBuilder from "./CvBuilder";
 import OutreachPanel from "./Outreach";
 import { buildPrepPrompt } from "./prep";
 import { RESUME_COLUMNS, type Resume } from "./Resumes";
@@ -29,6 +30,7 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
   const [toast, setToast] = useState<string | null>(null);
   const [cvId, setCvId] = useState<string>("");
   const [skipping, setSkipping] = useState(false);
+  const [pane, setPane] = useState<"notes" | "cv">("notes");
   const [sender, setSender] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -172,32 +174,44 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
       {error && <p className="notice">{error}</p>}
 
       <div className="job-body">
-        <section className="notepad">
-          <div className="notepad-head">
-            <h2>Notes</h2>
-            <span className="muted">{saving ? "Saving…" : dirty ? "Unsaved changes" : job.notes ? "Saved" : ""}</span>
-            <button className="primary small" disabled={!dirty || saving} onClick={save} title="Cmd/Ctrl+S">Save</button>
+        <div className="job-main">
+          <div className="tabs pane-tabs">
+            <button className={pane === "notes" ? "active" : ""} onClick={() => setPane("notes")}>Notes{dirty ? " ●" : ""}</button>
+            <button className={pane === "cv" ? "active" : ""} onClick={() => setPane("cv")}>CV</button>
           </div>
-          {NOTE_FIELDS.map((f) => (
-            <label key={f.key} className="note-field">
-              <span>{f.label}</span>
-              <textarea rows={f.key === "achievements" ? 6 : 4} placeholder={f.hint} value={draft[f.key]}
-                        onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} />
-            </label>
-          ))}
-          <div className="prompt-row">
-            <select value={cvId} onChange={(e) => setCvId(e.target.value)} aria-label="Base CV for the prompt">
-              <option value="">No base CV</option>
-              {resumes.map((r) => (
-                <option key={r.id} value={r.id}>{r.uid}{r.label ? ` · ${r.label}` : ""}{r.extracted_text ? "" : " (no text)"}</option>
-              ))}
-            </select>
-            <button className="small" onClick={() => copy("tailor")} title="Job description, your notes and the base CV, for any LLM">
-              Copy CV-tailoring prompt
-            </button>
-            {app && <button className="small" onClick={() => copy("prep")}>Copy interview-prep prompt</button>}
+          {/* Both stay mounted, so switching keeps unsaved notes and the CV draft. */}
+          <div hidden={pane !== "notes"}>
+          <section className="notepad">
+            <div className="notepad-head">
+              <h2>Notes</h2>
+              <span className="muted">{saving ? "Saving…" : dirty ? "Unsaved changes" : job.notes ? "Saved" : ""}</span>
+              <button className="primary small" disabled={!dirty || saving} onClick={save} title="Cmd/Ctrl+S">Save</button>
+            </div>
+            {NOTE_FIELDS.map((f) => (
+              <label key={f.key} className="note-field">
+                <span>{f.label}</span>
+                <textarea rows={f.key === "achievements" ? 6 : 4} placeholder={f.hint} value={draft[f.key]}
+                          onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} />
+              </label>
+            ))}
+            <div className="prompt-row">
+              <select value={cvId} onChange={(e) => setCvId(e.target.value)} aria-label="Base CV for the prompt">
+                <option value="">No base CV</option>
+                {resumes.map((r) => (
+                  <option key={r.id} value={r.id}>{r.uid}{r.label ? ` · ${r.label}` : ""}{r.extracted_text ? "" : " (no text)"}</option>
+                ))}
+              </select>
+              <button className="small" onClick={() => copy("tailor")} title="Job description, your notes and the base CV, for any LLM">
+                Copy CV-tailoring prompt
+              </button>
+              {app && <button className="small" onClick={() => copy("prep")}>Copy interview-prep prompt</button>}
+            </div>
+          </section>
           </div>
-        </section>
+          <div hidden={pane !== "cv"} className="notepad">
+            <CvBuilder job={job} active={active && pane === "cv"} />
+          </div>
+        </div>
 
         <aside className="job-side">
           <OutreachPanel job={job} applicationId={app?.id ?? null} sender={sender} />

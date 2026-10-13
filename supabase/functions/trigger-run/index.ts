@@ -41,9 +41,12 @@ Deno.serve(async (req) => {
     "User-Agent": "jobsignal",
   };
   // { workflow: "rerank" } re-ranks stored jobs after a profile save (no fetch, no email);
-  // anything else starts the daily pipeline. Only these two workflows can be started.
+  // anything else starts the daily pipeline. Only these three workflows can be started.
   const body = await req.json().catch(() => ({}));
-  const file = body?.workflow === "rerank" ? "rerank.yml" : "daily.yml";
+  // { workflow: "cv", build_id } compiles one CV build (cv.yml); the id must be an existing build.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (body?.workflow === "cv" && !UUID.test(String(body?.build_id ?? ""))) return json({ error: "bad_build_id" }, 400);
+  const file = body?.workflow === "rerank" ? "rerank.yml" : body?.workflow === "cv" ? "cv.yml" : "daily.yml";
   const workflow = `https://api.github.com/repos/${REPO}/actions/workflows/${file}`;
 
   // { check: true } verifies the token without starting a run.
@@ -55,7 +58,8 @@ Deno.serve(async (req) => {
   const res = await fetch(`${workflow}/dispatches`, {
     method: "POST",
     headers,
-    body: JSON.stringify(file === "daily.yml" ? { ref: "main", inputs: { dry_run: "false" } } : { ref: "main" }),
+    body: JSON.stringify(file === "daily.yml" ? { ref: "main", inputs: { dry_run: "false" } }
+      : file === "cv.yml" ? { ref: "main", inputs: { build_id: body.build_id } } : { ref: "main" }),
   });
   // 204 = queued. Anything else: report the status only, never the token.
   if (res.status === 204) return json({ ok: true });

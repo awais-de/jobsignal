@@ -4,7 +4,7 @@
 // to send an alert email or create a calendar entry (the bridge runs inside the Google account).
 
 import { classify, type Category } from "../_shared/inbox/classify.ts";
-import { extractFields, unforward } from "../_shared/inbox/extract.ts";
+import { berlinToUtc, extractFields, icsStart, interviewTime, unforward } from "../_shared/inbox/extract.ts";
 import { matchApplication, type OpenApp } from "../_shared/inbox/match.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -15,11 +15,12 @@ const APP_URL = Deno.env.get("ALLOWED_ORIGIN") ?? "";
 const FORWARD_PREFIX = /^\s*((fwd?|wg|fw|weitergeleitet)\s*:\s*)+/i;
 const TERMINAL = new Set(["rejected", "withdrawn", "offer_accepted", "offer_declined"]);
 const URGENT: Partial<Record<Category, string>> = {
-  interview_invitation: "Interview invitation", assessment: "Assessment", info_request: "Information requested",
+  interview_invitation: "Interview invitation", interview_scheduled: "Interview scheduled", assessment: "Assessment", info_request: "Information requested",
   offer: "Offer",
 };
 const EVENT_FOR: Partial<Record<Category, string>> = {
   application_confirmation: "confirmation_received", rejection: "rejected", interview_invitation: "interview_invited",
+  interview_scheduled: "interview_scheduled",
   assessment: "assessment_received", info_request: "info_requested", offer: "offer_received",
 };
 
@@ -75,11 +76,12 @@ async function appliedRecently(receivedAt: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-async function writeEvent(appId: string, type: string, at: string, emailId: string, confidence: number) {
+async function writeEvent(appId: string, type: string, at: string, emailId: string, confidence: number,
+                          scheduledFor: string | null = null) {
   await rest("/application_events", {
     method: "POST",
     body: JSON.stringify({ application_id: appId, event_type: type, occurred_at: at, source: "email",
-                           inbound_email_id: emailId, confidence }),
+                           inbound_email_id: emailId, confidence, scheduled_for: scheduledFor }),
   });
 }
 
@@ -108,6 +110,10 @@ async function handle(req: Request): Promise<Response> {
   const from = parseFrom(fwd?.from ?? m.from ?? "");
   const subject = (fwd?.subject ?? (m.subject ?? "").replace(FORWARD_PREFIX, "")).slice(0, 500);
   const body = (fwd?.body ?? m.body_text ?? "").slice(0, 20000);
+  // Booking tools put the date in the HTML part and the calendar invite, not the plain text (2026-10-13,
+  // Microsoft Bookings): the bridge sends both, used only for classification fallback and the date.
+  const html = (m.body_html_text ?? "").slice(0, 20000);
+  const ics = (m.ics ?? "").slice(0, 20000);
   const receivedAt = m.date ? new Date(m.date).toISOString() : new Date().toISOString();
 
   // 1. store once (spec 10.2.2)
@@ -124,8 +130,13 @@ async function handle(req: Request): Promise<Response> {
   const emailId: string = inserted[0].id;
 
   // 2. classify + extract (spec 10.3, 10.4)
-  const cls = classify(from.domain, subject, body);
+  const cls = classify(from.domain, subject, body.trim() ? `${body}\n${html.slice(0, 2000)}` : html);
   const facts = headerless ? extractFields("", "", subject, body) : extractFields(from.name, from.domain, subject, body, from.address.split("@")[0]);
+  // Interview time: the calendar invite first, then the text, then the HTML part.
+  const interviewAt = icsStart(ics) ?? facts.interview_at ?? interviewTime([html]);
+  facts.interview_at = interviewAt;
+  const interviewUtc = interviewAt ? berlinToUtc(interviewAt) : null;
+  const scheduled = (type: string) => (type === "interview_invited" || type === "interview_scheduled" ? interviewUtc : null);
   const actions: Action[] = [];
   let matchStatus = "ignored";
   let applicationId: string | null = null;
@@ -148,7 +159,8 @@ async function handle(req: Request): Promise<Response> {
         const applied = await rest(`/application_events?application_id=eq.${applicationId}&event_type=eq.applied&select=id&limit=1`);
         if (!applied.length) await writeEvent(applicationId, "applied", receivedAt, emailId, cls.confidence);
       }
-      await writeEvent(applicationId, EVENT_FOR[cls.category]!, receivedAt, emailId, cls.confidence);
+      await writeEvent(applicationId, EVENT_FOR[cls.category]!, receivedAt, emailId, cls.confidence,
+                       scheduled(EVENT_FOR[cls.category]!));
     } else if (!match && cls.category === "application_confirmation" && cls.confidence >= 0.9 && facts.company &&
                !(await appliedRecently(receivedAt))) {
       // A hand application that was never logged: create it (origin email_inferred). Not when the owner
@@ -200,15 +212,18 @@ async function handle(req: Request): Promise<Response> {
       body: [
         `${urgent} from ${from.name || from.address}.`,
         `Subject: ${subject}`,
+        interviewAt ? `When: ${interviewAt.replace("T", " at ")} (German time)` : "",
         `Confidence: ${Math.round(cls.confidence * 100)}%` + (matchStatus === "unmatched" ? " (not matched to an application yet)" : ""),
         `Open the email: ${gmailLink}`,
         APP_URL ? `Applications: ${APP_URL}/#applications` : "",
       ].filter(Boolean).join("\n"),
     });
-    if (cls.category === "interview_invitation" || urgent.startsWith("Possible")) {
-      actions.push(facts.interview_at
-        ? { type: "event", title: `Interview: ${who}`, start: facts.interview_at, minutes: 60 }
-        : { type: "reminder", title: `Reply to interview invitation: ${who}` });
+    if (cls.category === "interview_invitation" || cls.category === "interview_scheduled" || urgent.startsWith("Possible")) {
+      // With a calendar invite attached, the calendar already has the event: don't add a second one.
+      if (interviewAt && !ics) actions.push({ type: "event", title: `Interview: ${who}`, start: interviewAt, minutes: 60 });
+      else if (!interviewAt && cls.category !== "interview_scheduled") {
+        actions.push({ type: "reminder", title: `Reply to interview invitation: ${who}` });
+      }
     }
   }
 
@@ -216,7 +231,7 @@ async function handle(req: Request): Promise<Response> {
     method: "PATCH",
     body: JSON.stringify({
       category: cls.category, classified_by: "rules", confidence: cls.confidence,
-      extracted: { ...facts, candidates: cls.candidates }, match_status: matchStatus,
+      extracted: { ...facts, interview_at_utc: interviewUtc, candidates: cls.candidates }, match_status: matchStatus,
       application_id: applicationId, processed_at: new Date().toISOString(),
     }),
   });

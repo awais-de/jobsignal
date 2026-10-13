@@ -2,7 +2,7 @@
 // All sample emails are written by hand with invented companies (spec 13.1: no real emails in fixtures).
 import { assertEquals, assert } from "jsr:@std/assert@1.0.13";
 import { classify } from "./classify.ts";
-import { extractFields, unforward } from "./extract.ts";
+import { berlinToUtc, extractFields, icsStart, interviewTime, unforward } from "./extract.ts";
 import { matchApplication } from "./match.ts";
 import { normalizeCompany, normalizeTitle, sameCompany, titleSimilarity } from "./normalize.ts";
 
@@ -159,4 +159,37 @@ Deno.test("HR-system sender without a name in the text: company from the sender'
   assertEquals(f.company, "beispielbank musterstadt");
   const open = [{ id: "A1", company: "Beispielbank Musterstadt eG", title: "Data Engineer", reference_number: null }];
   assertEquals(matchApplication(f, open, null)?.application_id, "A1");
+});
+
+Deno.test("booking confirmation is 'interview scheduled'; date from the calendar invite or the HTML text", () => {
+  const body = "Your appointment will be with Anna Muster.\nIhr Kennenlernen mit Anna Muster\nMicrosoft Teams-Besprechung";
+  assertEquals(classify("beispiel.onmicrosoft.com", "Ihr Kennenlernen mit der Beispiel AG Musterstadt - Max Kandidat", body).category,
+               "interview_scheduled");
+  assertEquals(classify("kalender.example", "Termin bestätigt", "Ihr Termin wurde gebucht: Zahnreinigung").category, "other");
+  assertEquals(icsStart("BEGIN:VEVENT\r\nDTSTART;TZID=W. Europe Standard Time:20261014T100000\r\nEND:VEVENT"), "2026-10-14T10:00");
+  assertEquals(icsStart("DTSTART:20261014T080000Z"), "2026-10-14T10:00");
+  const now = new Date("2026-10-13T12:00:00Z");
+  assertEquals(interviewTime(["Mittwoch, 14. Oktober 2026, 10:00 Uhr – 10:30 Uhr"], now), "2026-10-14T10:00");
+  assertEquals(interviewTime(["Thursday, October 15, 2026 2:30 PM"], now), "2026-10-15T14:30");
+  assertEquals(interviewTime(["3 junior roles in 14 markets, call 0351 4391026"], now), null);
+  assertEquals(berlinToUtc("2026-10-14T10:00"), "2026-10-14T08:00:00.000Z");
+  assertEquals(berlinToUtc("2026-12-14T10:00"), "2026-12-14T09:00:00.000Z");
+});
+
+Deno.test("more confirmations and portal accounts", () => {
+  assertEquals(classify("beispiel.de", "Danke für Ihre Bewerbung!", "wir freuen uns, dass wir Ihre Bewerbung erhalten haben").category,
+               "application_confirmation");
+  assertEquals(classify("beispiel.de", "Neues Benutzerkonto im Beispiel Bewerbermanagementsystem", "Ihr Konto").category,
+               "account_created");
+});
+
+Deno.test("company: subject '| Company', a person's display name is not a company, short names", () => {
+  assertEquals(extractFields("Anna Muster", "beispiel-ag.de", "Einladung zum Interview | Beispiel AG", "Hallo", "anna.muster").company,
+               "Beispiel AG");
+  assertEquals(extractFields("Anna Muster", "beispiel-ag.de", "Termin", "Hallo", "anna.muster").company, "beispiel-ag");
+  assertEquals(extractFields("Beispiel AG", "beispiel-ag.de", "Danke", "Hallo", "beispiel-ag").company, "Beispiel AG");
+  assertEquals(extractFields("CHECK IN", "mein-check-in.de", "Beispielbank Musterstadt eG - Eingangsbestätigung", "Danke", "noreply").company,
+               "Beispielbank Musterstadt eG");
+  assert(sameCompany("ABC AG", "ABC Deutschland GmbH"));      // short name as the leading word
+  assert(!sameCompany("ABC", "Paradies ABC GmbH"));
 });

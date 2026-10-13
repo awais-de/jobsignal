@@ -53,5 +53,7 @@ export function sameCompany(a: string, b: string): boolean {
   if (!na || !nb) return false;
   if (na === nb) return true;
   const [short, long] = na.length <= nb.length ? [na, nb] : [nb, na];
-  return short.length >= 4 && new RegExp(`(^| )${escape(short)}( |$)`, "u").test(long);
+  // Short names (DIS, VHV, SAP) only as the leading word(s): "dis" = "dis germany", not "paradis".
+  if (short.length < 4) return short.length >= 3 && long.startsWith(short + " ");
+  return new RegExp(`(^| )${escape(short)}( |$)`, "u").test(long);
 }

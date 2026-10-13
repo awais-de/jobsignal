@@ -48,6 +48,10 @@ function processInbox() {
             subject: msg.getSubject(),
             date: msg.getDate().toISOString(),
             body_text: (msg.getPlainBody() || '').slice(0, MAX_BODY),
+            // Booking tools (Microsoft Bookings, Calendly, calendar invites) put the date and time in the
+            // HTML part and an attached .ics, not in the plain text.
+            body_html_text: htmlText(msg),
+            ics: calendarInvite(msg),
           }),
         });
         if (res.getResponseCode() >= 300) {
@@ -66,6 +70,28 @@ function processInbox() {
     props.setProperty('LAST_MS', String(Math.max(marker, last)));
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** The HTML part as plain text (tags, styles and scripts removed), for dates the plain part lacks. */
+function htmlText(msg) {
+  return (msg.getBody() || '')
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d|table)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim().slice(0, MAX_BODY);
+}
+
+/** The text of an attached calendar invite (.ics), or '' when there is none. */
+function calendarInvite(msg) {
+  try {
+    const att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) {
+      return (a.getContentType() || '').toLowerCase().indexOf('calendar') !== -1 || /\.ics$/i.test(a.getName() || '');
+    })[0];
+    return att ? att.getDataAsString().slice(0, MAX_BODY) : '';
+  } catch (e) {
+    return '';
   }
 }
 

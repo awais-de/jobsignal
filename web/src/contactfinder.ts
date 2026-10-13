@@ -193,8 +193,8 @@ export type Connection = {
   company_name: string | null; role_title: string | null; connected_on: string | null;
 };
 
-/** RFC-4180-ish CSV: quoted fields, doubled quotes, commas and newlines inside quotes. */
-export function parseCsv(text: string): string[][] {
+/** RFC-4180-ish CSV: quoted fields, doubled quotes, separators and newlines inside quotes. */
+export function parseCsv(text: string, sep = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [], field = "", quoted = false;
   for (let i = 0; i < text.length; i++) {
@@ -204,7 +204,7 @@ export function parseCsv(text: string): string[][] {
       else if (c === '"') quoted = false;
       else field += c;
     } else if (c === '"') quoted = true;
-    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === sep) { row.push(field); field = ""; }
     else if (c === "\n" || c === "\r") {
       if (c === "\r" && text[i + 1] === "\n") i++;
       row.push(field); rows.push(row); row = []; field = "";
@@ -217,9 +217,13 @@ export function parseCsv(text: string): string[][] {
 const MONTHS: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
                                          jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
 
-/** LinkedIn's Connections.csv: a few "Notes:" lines, then a header row starting with "First Name". */
+/** LinkedIn's Connections.csv: a few "Notes:" lines, then a header row starting with "First Name".
+ *  The separator is read from that header line: a copy re-saved by Numbers or Excel with German
+ *  settings uses semicolons (or tabs) instead of commas. */
 export function parseConnections(text: string): Connection[] {
-  const rows = parseCsv(text.replace(/^﻿/, ""));
+  const clean = text.replace(/^\uFEFF/, "");
+  const sep = clean.match(/^"?First Name"?([,;\t])/m)?.[1] ?? ",";
+  const rows = parseCsv(clean, sep);
   const h = rows.findIndex((r) => r[0]?.trim() === "First Name");
   if (h < 0) throw new Error("This doesn't look like LinkedIn's Connections.csv (no 'First Name' header).");
   const col = (name: string) => rows[h].findIndex((c) => c.trim().toLowerCase() === name);

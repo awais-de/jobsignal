@@ -43,9 +43,11 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
                  links: list[tuple[str, str] | None] | None = None,
                  app_url: str | None = None,
                  extras: list[dict] | None = None,
-                 reminders: list[str] | None = None) -> tuple[str, str, str]:
+                 reminders: list[str] | None = None, explore: int = 0) -> tuple[str, str, str]:
     """Returns (subject, text, html). `shown` is already ordered and capped; `total` counts all that passed.
     `reminders` are outreach lines (see outreach_reminders), shown above the jobs.
+    `total` counts core jobs only; `explore` is the number of new Explore-lane jobs (app only), mentioned
+    in a line of their own so the subject matches the feed's timeline.
     `links` holds an (apply_url, skip_url) pair per shown posting, or None when no links can be made.
     `app_url` adds a link to the web app's timeline, which keeps every job for 30 days."""
     links = links or [None] * len(shown)
@@ -55,6 +57,10 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
     app_text = f"\n\nTimeline (last 30 days): {app_url}" if app_url else ""
     app_html = (f'<p style="font-size:13px"><a href="{escape(app_url)}">Open the timeline</a> '
                 "for every job from the last 30 days.</p>") if app_url else ""
+    if explore:
+        line = f"Also {explore} new job{'s' if explore != 1 else ''} in Explore (directions you're testing, shown in the app only)."
+        app_text += f"\n{line}"
+        app_html += f'<p style="font-size:13px">{escape(line)}</p>'
 
     reminders = reminders or []
     apps_link = f"{app_url.rstrip('/')}/#applications" if app_url else None

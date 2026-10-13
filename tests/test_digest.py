@@ -81,3 +81,11 @@ def test_digest_shows_reminders_even_without_jobs():
                                  reminders=["Reach out: nobody contacted yet for Beispiel GmbH (Data Engineer)."])
     assert text.startswith("Reach out:") and "https://app.example/#applications" in text
     assert "Open Applications" in html
+
+
+def test_explore_jobs_get_their_own_line_not_the_subject_count():
+    subject, text, html = build_digest([posting()], 15, date(2026, 10, 13), app_url="https://app.example", explore=15)
+    assert "15 new jobs" in subject
+    assert "Also 15 new jobs in Explore" in text and "Also 15 new jobs in Explore" in html
+    subject, text, _ = build_digest([posting()], 1, date(2026, 10, 13))
+    assert "Explore" not in text

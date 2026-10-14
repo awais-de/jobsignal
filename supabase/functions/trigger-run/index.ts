@@ -6,6 +6,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("GITHUB_DISPATCH_TOKEN");
 const REPO = Deno.env.get("GITHUB_REPO") ?? "awais-de/jobsignal";
+const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "*";
 
 const cors = {
@@ -28,10 +29,21 @@ async function isOwner(req: Request): Promise<boolean> {
   return Array.isArray(rows) && rows.length === 1;
 }
 
+/** Constant-time comparison for the cron secret. */
+function safeEqual(a: string, b: string): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-  if (!(await isOwner(req))) return json({ error: "forbidden" }, 403);
+  // Supabase's daily scheduler (pg_cron, migration ..._daily_cron.sql) authenticates with CRON_SECRET and
+  // can only start the daily run, marked scheduled (skipped if today already ran).
+  const cron = safeEqual(req.headers.get("x-cron-secret") ?? "", CRON_SECRET);
+  if (!cron && !(await isOwner(req))) return json({ error: "forbidden" }, 403);
   if (!TOKEN) return json({ error: "not_configured" }, 503);
 
   const headers = {
@@ -42,7 +54,8 @@ Deno.serve(async (req) => {
   };
   // { workflow: "rerank" } re-ranks stored jobs after a profile save (no fetch, no email);
   // anything else starts the daily pipeline. Only these three workflows can be started.
-  const body = await req.json().catch(() => ({}));
+  const raw = await req.json().catch(() => ({}));
+  const body = cron ? { workflow: "daily" } : raw;
   // { workflow: "cv", build_id } compiles one CV build (cv.yml); the id must be an existing build.
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if (body?.workflow === "cv" && !UUID.test(String(body?.build_id ?? ""))) return json({ error: "bad_build_id" }, 400);
@@ -58,7 +71,8 @@ Deno.serve(async (req) => {
   const res = await fetch(`${workflow}/dispatches`, {
     method: "POST",
     headers,
-    body: JSON.stringify(file === "daily.yml" ? { ref: "main", inputs: { dry_run: "false" } }
+    body: JSON.stringify(file === "daily.yml"
+      ? { ref: "main", inputs: { dry_run: "false", scheduled: cron ? "true" : "false" } }
       : file === "cv.yml" ? { ref: "main", inputs: { build_id: body.build_id } } : { ref: "main" }),
   });
   // 204 = queued. Anything else: report the status only, never the token.

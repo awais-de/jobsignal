@@ -3,7 +3,7 @@ import {
   ANCHORS, anchor, demand, keyOf, priority, QUADRANTS, quadrant, suggestParent, TARGET, WEIGHT,
   type Demand, type Filter, type Quadrant, type Skill,
 } from "./skillmath";
-import { useSkills } from "./skills-data";
+import { scheduleRerank, useRerankPending, useSkills, type Category } from "./skills-data";
 import { supabase } from "./supabase";
 
 // Skills database (owner decisions 2026-10-14): how often each skill is asked for, how strong you are in
@@ -35,6 +35,7 @@ export default function Skills() {
   return (
     <div className="skills">
       <div className="responses-bar"><h2>Skills</h2></div>
+      <RerankNotice />
       <div className="tabs">
         <button className={tab === "gaps" ? "active" : ""} onClick={() => setTab("gaps")}>Demand &amp; gaps</button>
         <button className={tab === "ratings" ? "active" : ""} onClick={() => setTab("ratings")}>My ratings</button>
@@ -48,6 +49,11 @@ export default function Skills() {
       {tab === "new" && <NewSkills queue={queue} sk={sk} />}
     </div>
   );
+}
+
+function RerankNotice() {
+  const pending = useRerankPending();
+  return pending ? <p className="notice">Your skills changed: jobs are re-ranked about a minute after your last change.</p> : null;
 }
 
 // -- demand & gaps ------------------------------------------------------------------------------
@@ -124,6 +130,7 @@ function Gaps({ d, filter, setFilter, families, ratingOf, onRate, unmatched, toN
 function Ratings({ sk, focus }: { sk: ReturnType<typeof useSkills>; focus: string | null }) {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<string | null>(focus);
+  const [editingSkill, setEditingSkill] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const cats = useMemo(() => {
     const m = new Map<string, Skill[]>();
@@ -149,7 +156,8 @@ function Ratings({ sk, focus }: { sk: ReturnType<typeof useSkills>; focus: strin
       {adding && <AddSkill sk={sk} onDone={() => setAdding(false)} />}
       {cats.map(([cat, list]) => (
         <section key={cat} className="card skill-group">
-          <h3>{cat}</h3>
+          <h3>{cat.replace(/_/g, " ")}</h3>
+          <CategoryLabels cat={cat} sk={sk} />
           <ul className="rating-list">
             {list.map((s) => {
               const cur = sk.ratings.cur.get(s.id), prev = sk.ratings.prev.get(s.id);
@@ -164,7 +172,10 @@ function Ratings({ sk, focus }: { sk: ReturnType<typeof useSkills>; focus: strin
                       {prev ? ` · was ${prev.rating}/10` : ""}</span>}
                     <button className="link" onClick={() => setEditing(editing === s.id ? null : s.id)}>
                       {editing === s.id ? "Cancel" : cur ? "Record an improvement" : "Rate"}</button>
+                    <button className="link" onClick={() => setEditingSkill(editingSkill === s.id ? null : s.id)}>
+                      {editingSkill === s.id ? "Close" : "Edit"}</button>
                   </div>
+                  {editingSkill === s.id && <EditSkill skill={s} sk={sk} onDone={() => setEditingSkill(null)} />}
                   {cur?.note && <div className="muted small">{cur.note}</div>}
                   {editing === s.id && <RateForm skill={s} current={cur?.rating ?? null} sk={sk} onDone={() => setEditing(null)} />}
                 </li>
@@ -177,6 +188,84 @@ function Ratings({ sk, focus }: { sk: ReturnType<typeof useSkills>; focus: strin
   );
 }
 
+/** The category's label on the CV (German / English) and its row order there. */
+function CategoryLabels({ cat, sk }: { cat: string; sk: ReturnType<typeof useSkills> }) {
+  const cur = sk.categories.find((c) => c.category === cat);
+  const [de, setDe] = useState(cur?.label_de ?? "");
+  const [en, setEn] = useState(cur?.label_en ?? "");
+  const [order, setOrder] = useState(cur?.cv_order ?? 100);
+  const [saved, setSaved] = useState(false);
+  async function save() {
+    const row: Category = { category: cat, label_de: de.trim() || null, label_en: en.trim() || null, cv_order: order };
+    const { error } = await supabase.from("skill_categories").upsert(row, { onConflict: "category" });
+    if (error) return;
+    sk.setCategories((cs) => [...cs.filter((c) => c.category !== cat), row]);
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+  return (
+    <div className="row small-text cat-labels">
+      <span className="muted">CV row:</span>
+      <input placeholder="German label, e.g. Programmierung & Datenbanken" value={de} onChange={(e) => setDe(e.target.value)} onBlur={save} />
+      <input placeholder="English label, e.g. Programming & databases" value={en} onChange={(e) => setEn(e.target.value)} onBlur={save} />
+      <input type="number" min={1} max={99} value={order} onChange={(e) => setOrder(Number(e.target.value))} onBlur={save} title="Order on the CV" aria-label="Order on the CV" />
+      {saved && <span className="muted">saved</span>}
+    </div>
+  );
+}
+
+/** Rename a skill, edit its aliases, category and parent (the database is the only place skills are edited). */
+function EditSkill({ skill, sk, onDone }: { skill: Skill; sk: ReturnType<typeof useSkills>; onDone: () => void }) {
+  const [name, setName] = useState(skill.name);
+  const [aliases, setAliases] = useState(skill.aliases.filter((a) => a !== skill.name_key).join(", "));
+  const [category, setCategory] = useState(skill.category ?? "");
+  const [parent, setParent] = useState(skill.parent_id ?? "");
+  const [err, setErr] = useState<string | null>(null);
+  const cats = [...new Set((sk.catalog ?? []).map((s) => s.category).filter(Boolean))] as string[];
+  async function save() {
+    const n = name.trim();
+    if (!n) return;
+    const fields = {
+      name: n, name_key: keyOf(n), category: category || null, parent_id: parent || null,
+      aliases: [...new Set([keyOf(n), ...aliases.split(",").map(keyOf).filter(Boolean)])],
+    };
+    const { error } = await supabase.from("skills").update(fields).eq("id", skill.id);
+    if (error) return setErr(error.code === "23505" ? "Another skill has that name." : error.message);
+    sk.setCatalog((c) => (c ?? []).map((s) => (s.id === skill.id ? { ...s, ...fields } : s)));
+    scheduleRerank();
+    onDone();
+  }
+  async function remove() {
+    if (!window.confirm(`Remove “${skill.name}” from the catalogue? Its ratings are kept in the history.`)) return;
+    const { error } = await supabase.from("skills").update({ deleted_at: new Date().toISOString() }).eq("id", skill.id);
+    if (error) return setErr(error.message);
+    sk.setCatalog((c) => (c ?? []).filter((s) => s.id !== skill.id));
+    scheduleRerank();
+    onDone();
+  }
+  return (
+    <div className="register">
+      <div className="row">
+        <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+        <select value={parent} onChange={(e) => setParent(e.target.value)} aria-label="Variant of">
+          <option value="">Not a variant</option>
+          {(sk.catalog ?? []).filter((s) => !s.parent_id && s.id !== skill.id).map((s) => <option key={s.id} value={s.id}>variant of {s.name}</option>)}
+        </select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
+          <option value="">No category</option>
+          {cats.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
+        </select>
+      </div>
+      <input className="wide-input" placeholder="Other names in job ads, comma-separated (e.g. ms sql server, mssql)" value={aliases}
+             onChange={(e) => setAliases(e.target.value)} />
+      <div className="row">
+        <button className="primary small" disabled={!name.trim()} onClick={save}>Save</button>
+        <button className="link danger" onClick={remove}>Remove skill</button>
+      </div>
+      {err && <p className="notice">{err}</p>}
+    </div>
+  );
+}
+
 function RateForm({ skill, current, sk, onDone }: { skill: Skill; current: number | null; sk: ReturnType<typeof useSkills>; onDone: () => void }) {
   const [rating, setRating] = useState<number>(current ?? 3);
   const [note, setNote] = useState("");
@@ -186,6 +275,7 @@ function RateForm({ skill, current, sk, onDone }: { skill: Skill; current: numbe
       .select("skill_id,rating,note,rated_at").single();
     if (error) return setErr(error.message);
     sk.setHistory((h) => [...h, data as never]);
+    scheduleRerank();
     onDone();
   }
   return (
@@ -217,9 +307,10 @@ function AddSkill({ sk, onDone, name: initial = "", parent: initialParent = null
     const { data, error } = await supabase.from("skills").insert({
       name: n, name_key: keyOf(n), aliases: [keyOf(n)], parent_id: parent || null,
       category: category || (parent ? sk.index?.byId.get(parent)?.category ?? null : null),
-    }).select("id,name,name_key,parent_id,aliases,category").single();
+    }).select("id,name,name_key,parent_id,aliases,category,from_profile").single();
     if (error) return setErr(error.code === "23505" ? "That skill exists already." : error.message);
     sk.setCatalog((c) => [...(c ?? []), data as Skill]);
+    scheduleRerank();
     onDone(data as Skill);
   }
   return (
@@ -252,6 +343,7 @@ function NewSkills({ queue, sk }: { queue: { raw: string; jobs: number }[]; sk: 
     const { error } = await supabase.from("skills").update({ aliases }).eq("id", skill.id);
     if (error) return setErr(error.message);
     sk.setCatalog((c) => (c ?? []).map((s) => (s.id === skill.id ? { ...s, aliases } : s)));
+    scheduleRerank();
   }
   async function ignore(raw: string) {
     const { error } = await supabase.from("skill_ignores").insert({ raw_key: keyOf(raw) });

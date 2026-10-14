@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adLanguage } from "./contactfinder";
 import { BASE_COLUMNS, type BaseCv } from "./CvBase";
 import {
-  cvFileName, emptyDraft, entryOn, parseCv, plainCv, renderCv, rowOn, type Draft, type Entry, type Field, type ParsedCV,
+  cvFileName, emptyDraft, entryOn, masterRowOn, parseCv, plainCv, renderCv, skillsSectionId,
+  type DbSkills, type Draft, type Entry, type Field, type ParsedCV,
 } from "./cvtex";
 import { useSkills } from "./skills-data";
 import { supabase } from "./supabase";
@@ -80,8 +81,40 @@ export default function CvBuilder({ job, active }: {
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3000); };
   const set = (f: (d: Draft) => Draft) => setDraft((d) => f({ ...d, text: { ...d.text }, on: { ...d.on }, extra: { ...d.extra } }));
 
-  const tex = useMemo(() => (cv ? renderCv(cv, draft) : ""), [cv, draft]);
-  const plain = useMemo(() => (cv ? plainCv(cv, draft) : ""), [cv, draft]);
+  // The skills section comes from the skills database (owner decision 2026-10-14): your skills (rated 3+,
+  // or unrated from the profile) per category; pre-selected when the job asks for them or you're strong (6+).
+  const skillsSection = cv ? skillsSectionId(cv) : null;
+  const asked = useMemo(() => {
+    const ids = new Set<string>();
+    for (const raw of [...(job.must_have_skills ?? []), ...(job.nice_to_have_skills ?? [])]) {
+      const m = sk.index?.match(raw);
+      if (m) sk.index!.lineage(m).forEach((x) => ids.add(x.id));
+    }
+    return ids;
+  }, [sk.index, job.must_have_skills, job.nice_to_have_skills]);
+  const skillGroups = useMemo(() => {
+    const mine = (sk.catalog ?? []).filter((x) => sk.isMine(x));
+    const lang = base?.lang ?? "de";
+    const by = new Map<string, typeof mine>();
+    for (const x of mine) by.set(x.category ?? "other", [...(by.get(x.category ?? "other") ?? []), x]);
+    return [...by.entries()].map(([cat, list]) => {
+      const c = sk.categories.find((k) => k.category === cat);
+      const label = (lang === "de" ? c?.label_de : c?.label_en) ?? null;
+      const order = c?.cv_order ?? 100;
+      const items = list.map((x) => ({ skill: x, asked: asked.has(x.id), rating: sk.ratingOf(x.id) }))
+        .sort((a, b) => Number(b.asked) - Number(a.asked) || (b.rating ?? 0) - (a.rating ?? 0) || a.skill.name.localeCompare(b.skill.name));
+      return { cat, label, fallback: cat.replace(/_/g, " ").replace(/^./, (m) => m.toUpperCase()), order, items };
+    }).sort((a, b) => a.order - b.order || a.cat.localeCompare(b.cat));
+  }, [sk.catalog, sk.categories, sk.isMine, sk.ratingOf, asked, base?.lang]);
+  const skillOn = useCallback((id: string, askedNow: boolean, rating: number | null) =>
+    draft.on[`skill:${id}`] ?? (askedNow || (rating ?? 0) >= 6), [draft.on]);
+  const dbSkills: DbSkills | undefined = useMemo(() => skillsSection ? {
+    sectionId: skillsSection,
+    rows: skillGroups.map((g) => ({ label: g.label ?? g.fallback, items: g.items.filter((i) => skillOn(i.skill.id, i.asked, i.rating)).map((i) => i.skill.name) })),
+  } : undefined, [skillsSection, skillGroups, skillOn]);
+
+  const tex = useMemo(() => (cv ? renderCv(cv, draft, dbSkills) : ""), [cv, draft, dbSkills]);
+  const plain = useMemo(() => (cv ? plainCv(cv, draft, dbSkills) : ""), [cv, draft, dbSkills]);
   const fileName = cv && base ? cvFileName(base.lang, cv.name, job.company_name) : "CV.pdf";
 
   // Keyword check: the job's skills (extracted from the ad) against the CV's text.
@@ -178,15 +211,41 @@ export default function CvBuilder({ job, active }: {
               {s.kind === "paragraph" && (
                 <FieldBox f={s.text} value={draft.text[s.id]} rows={4} onChange={(v) => set((d) => { d.text[s.id] = v; return d; })} />
               )}
-              {s.kind === "rows" && s.rows.map((r) => (
-                <div key={r.id} className={`cv-row${rowOn(r, draft) ? "" : " off"}`}>
-                  <label className="check">
-                    <input type="checkbox" checked={rowOn(r, draft)} onChange={(e) => set((d) => { d.on[r.id] = e.target.checked; return d; })} />
-                    <strong>{r.label.plain}</strong>
-                  </label>
-                  {rowOn(r, draft) && <FieldBox f={r.text} value={draft.text[r.id]} rows={2} onChange={(v) => set((d) => { d.text[r.id] = v; return d; })} />}
+              {s.kind === "rows" && s.id === skillsSection && (
+                <div className="cv-db-skills">
+                  <p className="muted small">From your <a href="#skills">skills database</a> (rated 3+). Ticked: what this job asks for, and your strengths (6+).
+                    Category labels and order are set on the Skills page.</p>
+                  {skillGroups.map((g) => (
+                    <div key={g.cat} className="cv-row">
+                      <strong>{g.label ?? g.fallback}</strong>{!g.label && <span className="muted small"> (no CV label yet)</span>}
+                      <div className="skill-ticks">
+                        {g.items.map((i) => {
+                          const on = skillOn(i.skill.id, i.asked, i.rating);
+                          return (
+                            <label key={i.skill.id} className={`tick${on ? " on" : ""}${i.asked ? " asked" : ""}`} title={i.asked ? "This job asks for it" : undefined}>
+                              <input type="checkbox" checked={on} onChange={(e) => set((d) => { d.on[`skill:${i.skill.id}`] = e.target.checked; return d; })} />
+                              {i.skill.name}{i.rating != null ? ` ${i.rating}` : ""}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {s.kind === "rows" && s.rows.map((r) => {
+                const on = masterRowOn(r, draft, s.id, dbSkills);
+                return (
+                  <div key={r.id} className={`cv-row${on ? "" : " off"}`}>
+                    <label className="check">
+                      <input type="checkbox" checked={on} onChange={(e) => set((d) => { d.on[r.id] = e.target.checked; return d; })} />
+                      <strong>{r.label.plain}</strong>
+                      {s.id === skillsSection && <span className="muted small"> (from the master CV)</span>}
+                    </label>
+                    {on && <FieldBox f={r.text} value={draft.text[r.id]} rows={2} onChange={(v) => set((d) => { d.text[r.id] = v; return d; })} />}
+                  </div>
+                );
+              })}
               {s.kind === "entries" && s.entries.map((e) => (
                 <EntryBox key={e.id} e={e} on={entryOn(e, s, draft)} projects={s.projects} draft={draft} set={set} />
               ))}

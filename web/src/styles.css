@@ -606,3 +606,14 @@ ul.rating-list li.focus { background: var(--warn-bg); border-radius: 6px; paddin
   .share { min-width: 70px; }
 }
 @media (max-width: 480px) { .skill-group table.apps td .muted.small { display: none; } }
+.cat-labels { margin-bottom: 6px; }
+.cat-labels input { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; flex: 1 1 200px; }
+.cat-labels input[type="number"] { flex: 0 0 56px; }
+.skills .register .wide-input { width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
+.cv-db-skills { margin-bottom: 6px; }
+.skill-ticks { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.skill-ticks .tick { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); cursor: pointer; }
+.skill-ticks .tick.on { background: #ddf4ff; color: #0550ae; }
+.skill-ticks .tick.asked { box-shadow: inset 0 0 0 1px var(--accent); }
+.skill-ticks .tick input { margin: 0; }
+@media (prefers-color-scheme: dark) { .skill-ticks .tick.on { background: #0c2d6b; color: #a5d6ff; } }

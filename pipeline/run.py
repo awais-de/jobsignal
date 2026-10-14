@@ -28,6 +28,7 @@ from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
 from pipeline.enrich import Enricher
 from pipeline.rank import keyword_overlap, score
+from pipeline.skills_db import skills_from_rows
 from pipeline.extract.jd import STAGE
 from pipeline.llm.router import build_router
 from pipeline.db import Database
@@ -394,10 +395,26 @@ def _load_profile(db: Database | None) -> dict[str, Any]:
             profile = validate_profile(row[0], "the app")
             profile["_version"] = row[1]
             log.info("profile: from the app (version %d)", row[1])
+            _skills_from_db(db, profile)
             return profile
     profile = load_profile()
     profile["_version"] = 0
     return profile
+
+
+def _skills_from_db(db: Database, profile: dict[str, Any]) -> None:
+    """The skills database is the source of the owner's skills; the profile's list is the fallback. The
+    version becomes '<profile version>.<skills stamp>' so a skills change re-ranks every job."""
+    try:
+        skills, stamp = skills_from_rows(db.ranking_skills())
+    except Exception:  # noqa: BLE001 - fall back to the profile's list rather than fail the run
+        log.warning("skills: database unavailable, using the profile's list")
+        return
+    if not skills:
+        return
+    profile["skills"] = skills
+    profile["_version"] = f"{profile['_version']}.{stamp}"
+    log.info("skills: %d from the skills database", sum(len(v) for v in skills.values()))
 
 
 def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: datetime) -> int:

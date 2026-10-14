@@ -4,7 +4,8 @@
 //           a variant also counts toward its parent (T-SQL -> SQL), default population core jobs.
 //   rating: 0-10, the latest recorded; anchors 0 none · 3 basics · 5 used in a job · 7 strong · 9 expert.
 
-export type Skill = { id: string; name: string; name_key: string; parent_id: string | null; aliases: string[]; category: string | null };
+export type Skill = { id: string; name: string; name_key: string; parent_id: string | null; aliases: string[]; category: string | null;
+                      from_profile?: boolean };
 export type Rating = { skill_id: string; rating: number; note: string | null; rated_at: string };
 export type JobSkills = { id: string; must_have_skills: string[] | null; nice_to_have_skills: string[] | null;
                           lane: string | null; title_family: string | null; first_seen_at: string };

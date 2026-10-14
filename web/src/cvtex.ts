@@ -179,6 +179,22 @@ export function parseCv(tex: string): ParsedCV {
   return { preamble, headerBefore, headline, headerAfter, name, sections };
 }
 
+// -- skills section from the skills database (owner decision 2026-10-14) ------------------------------
+/** Rows built from the skills database replace the skill rows of the master CV's skills section; rows of
+ *  that section that aren't skills (e.g. "Sprachen") stay from the master CV, on by default. */
+export type DbSkills = { sectionId: string; rows: { label: string; items: string[] }[] };
+const SKILLS_TITLE = /kenntnisse|skills|fähigkeiten|faehigkeiten|kompetenzen|technolog|expertise/i;
+const KEEP_ROW = /sprach|language/i;
+
+/** The id of the master CV's skills section: the first labelled-rows section with a skills-like title. */
+export function skillsSectionId(cv: ParsedCV): string | null {
+  return cv.sections.find((s) => s.kind === "rows" && SKILLS_TITLE.test(s.title))?.id ?? null;
+}
+/** In the database-driven section, a master-CV row is on by default only when it isn't a skill row. */
+const rowOnIn = (r: Row, d: Draft, db?: DbSkills, sectionId?: string) =>
+  db && db.sectionId === sectionId ? d.on[r.id] ?? KEEP_ROW.test(r.label.plain) : rowOn(r, d);
+export const masterRowOn = (r: Row, d: Draft, sectionId: string, db: DbSkills | undefined) => rowOnIn(r, d, db, sectionId);
+
 // -- writing --------------------------------------------------------------------------------------
 /** Bullets start off; entries are on, except in a projects section (on once one of its bullets is). */
 export function entryOn(e: Entry, s: Section & { kind: "entries" }, d: Draft): boolean {
@@ -187,7 +203,7 @@ export function entryOn(e: Entry, s: Section & { kind: "entries" }, d: Draft): b
 }
 export const rowOn = (r: Row, d: Draft) => d.on[r.id] ?? true;
 
-export function renderCv(cv: ParsedCV, d: Draft): string {
+export function renderCv(cv: ParsedCV, d: Draft, db?: DbSkills): string {
   const out: string[] = [cv.preamble, ""];
   out.push(cv.headline
     ? `${cv.headerBefore}{\\large ${fieldTex(cv.headline, d.headline)}}${cv.headerAfter}`.trimEnd()
@@ -197,9 +213,11 @@ export function renderCv(cv: ParsedCV, d: Draft): string {
     if (s.kind === "paragraph") {
       block.push(...[s.pre, fieldTex(s.text, d.text[s.id]), s.post].filter(Boolean));
     } else if (s.kind === "rows") {
-      const rows = s.rows.filter((r) => rowOn(r, d));
-      if (!rows.length) continue;
+      const rows = s.rows.filter((r) => rowOnIn(r, d, db, s.id));
+      const generated = db && db.sectionId === s.id ? db.rows.filter((r) => r.items.length) : [];
+      if (!rows.length && !generated.length) continue;
       block.push(s.open);
+      for (const g of generated) block.push(`  \\item \\textbf{${escapeTex(g.label)}:} ${g.items.map(escapeTex).join(", ")}`);
       for (const r of rows) block.push(`  \\item \\textbf{${fieldTex(r.label, d.text[`${r.id}.label`])}} ${fieldTex(r.text, d.text[r.id])}`);
       block.push(s.close);
     } else if (s.kind === "entries") {
@@ -231,7 +249,7 @@ export function renderCv(cv: ParsedCV, d: Draft): string {
 }
 
 /** The CV as plain text: for the keyword check, the prompts and the resume record. */
-export function plainCv(cv: ParsedCV, d: Draft): string {
+export function plainCv(cv: ParsedCV, d: Draft, db?: DbSkills): string {
   const plain = (f: Field, edited?: string) => (edited !== undefined ? edited : f.plain).replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, "").replace(/[{}]/g, "");
   const out: string[] = [];
   if (cv.name) out.push(cv.name);
@@ -239,8 +257,12 @@ export function plainCv(cv: ParsedCV, d: Draft): string {
   for (const s of cv.sections) {
     if (s.kind === "paragraph") out.push("", s.title, plain(s.text, d.text[s.id]));
     else if (s.kind === "rows") {
-      const rows = s.rows.filter((r) => rowOn(r, d));
-      if (rows.length) out.push("", s.title, ...rows.map((r) => `${plain(r.label, d.text[`${r.id}.label`])} ${plain(r.text, d.text[r.id])}`));
+      const rows = s.rows.filter((r) => rowOnIn(r, d, db, s.id));
+      const generated = db && db.sectionId === s.id ? db.rows.filter((r) => r.items.length) : [];
+      if (rows.length || generated.length) {
+        out.push("", s.title, ...generated.map((g) => `${g.label}: ${g.items.join(", ")}`),
+                 ...rows.map((r) => `${plain(r.label, d.text[`${r.id}.label`])} ${plain(r.text, d.text[r.id])}`));
+      }
     } else if (s.kind === "entries") {
       const entries = s.entries.filter((e) => entryOn(e, s, d));
       if (!entries.length) continue;

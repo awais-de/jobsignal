@@ -136,8 +136,10 @@ export default function ProfilePage() {
 
       <section className="card">
         <h3>Skills</h3>
-        <p className="muted">Only skills you'd defend in an interview. Spelling variants help matching job ads ("ADF" = Azure Data Factory).</p>
-        <SkillsEditor skills={profile.skills} onChange={(skills) => set({ skills })} />
+        <p className="muted">
+          Your skills live in the <a href="#skills">skills database</a> (Skills page): ratings, variants and the names job ads use. Ranking and
+          the skills section of your CVs read them from there. The list kept in this profile is only a fallback for the pipeline.
+        </p>
       </section>
 
       <section className="card">
@@ -259,66 +261,6 @@ function FamiliesEditor({ families, onChange }: { families: Family[]; onChange: 
       ))}
       <button className="small" onClick={add}>+ Add a family</button>
     </div>
-  );
-}
-
-function SkillsEditor({ skills, onChange }: { skills: Skills; onChange: (s: Skills) => void }) {
-  const [newTrack, setNewTrack] = useState("");
-  const tracks = Object.keys(skills);
-  const setTrack = (t: string, v: Record<string, string[]>) => onChange({ ...skills, [t]: v });
-  return (
-    <>
-      {tracks.map((t) => (
-        <TrackEditor key={t} name={t} skills={skills[t] ?? {}} onChange={(v) => setTrack(t, v)}
-                     onRemove={() => { const { [t]: _, ...rest } = skills; onChange(rest); }} />
-      ))}
-      <div className="row">
-        <input placeholder="New track, e.g. cloud_platforms" value={newTrack} onChange={(e) => setNewTrack(e.target.value)} />
-        <button className="small" disabled={!newTrack.trim() || tracks.includes(newTrack.trim())}
-                onClick={() => { setTrack(newTrack.trim().toLowerCase().replace(/\s+/g, "_"), {}); setNewTrack(""); }}>Add track</button>
-      </div>
-    </>
-  );
-}
-
-function TrackEditor({ name, skills, onChange, onRemove }: {
-  name: string; skills: Record<string, string[]>; onChange: (v: Record<string, string[]>) => void; onRemove: () => void;
-}) {
-  const [draft, setDraft] = useState("");
-  const entries = Object.entries(skills);
-  return (
-    <details className="track" open={entries.length < 12}>
-      <summary><strong>{name.replace(/_/g, " ")}</strong> <span className="muted">{entries.length} skills</span>
-        {entries.length === 0 && <button className="link danger" onClick={onRemove}>remove track</button>}
-      </summary>
-      {entries.map(([skill, aliases]) => (
-        <div key={skill} className="skill-row">
-          <span className="skill-name">{skill}</span>
-          <AliasChips aliases={aliases ?? []} onChange={(a) => onChange({ ...skills, [skill]: a })} />
-          <button className="link danger" aria-label={`Remove ${skill}`}
-                  onClick={() => { const { [skill]: _, ...rest } = skills; onChange(rest); }}>remove</button>
-        </div>
-      ))}
-      <div className="row">
-        <input placeholder="Add a skill, e.g. terraform" value={draft} onChange={(e) => setDraft(e.target.value)}
-               onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { onChange({ ...skills, [draft.trim().toLowerCase()]: [] }); setDraft(""); } }} />
-        <button className="small" disabled={!draft.trim() || draft.trim().toLowerCase() in skills}
-                onClick={() => { onChange({ ...skills, [draft.trim().toLowerCase()]: [] }); setDraft(""); }}>Add skill</button>
-      </div>
-    </details>
-  );
-}
-
-function AliasChips({ aliases, onChange }: { aliases: string[]; onChange: (a: string[]) => void }) {
-  const [draft, setDraft] = useState("");
-  return (
-    <span className="aliases">
-      {aliases.map((a) => (
-        <span key={a} className="chip-item small">{a}<button className="x" onClick={() => onChange(aliases.filter((x) => x !== a))}>×</button></span>
-      ))}
-      <input className="alias-input" placeholder="+ variant" value={draft} onChange={(e) => setDraft(e.target.value)}
-             onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) { onChange([...aliases, draft.trim().toLowerCase()]); setDraft(""); } }} />
-    </span>
   );
 }
 

@@ -190,6 +190,10 @@ class Database:
             self._req("POST", "/llm_usage", json=chunk)
 
     # -- owner profile (editable in the app) ------------------------------------------------
+    def ranking_skills(self) -> list[dict[str, Any]]:
+        """The owner's skills from the skills database (see pipeline/skills_db.py)."""
+        return self._req("POST", "/rpc/ranking_skills", json={}) or []
+
     def owner_profile(self) -> tuple[dict[str, Any], int] | None:
         rows = self._req("GET", "/owner_profile", params={"select": "profile,version", "id": "eq.1"})
         return (rows[0]["profile"], rows[0]["version"]) if rows else None

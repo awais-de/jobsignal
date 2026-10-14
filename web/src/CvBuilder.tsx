@@ -177,7 +177,7 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   }
 
   if (bases && bases.length === 0) {
-    return <p className="muted">No CV format yet. Upload your LaTeX CV on <a href="#mastercv">Me → Master CV</a> (CV formats); it can fill the master CV too.</p>;
+    return <p className="muted">No CV format yet. Upload your LaTeX CV under <a href="#mastercv">Me → Master CV</a> → CV formats: its layout is used, the content comes from the master CV.</p>;
   }
   if (!bases || !base || !items) return <p className="muted">{error ?? "Loading…"}</p>;
 

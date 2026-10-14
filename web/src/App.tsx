@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 import ActionPage from "./ActionPage";
 import Applications from "./Applications";
 import Feed from "./Feed";
-import Control from "./Control";
+import Home from "./Home";
 import JobPage from "./JobPage";
 import Lab from "./Lab";
 import People from "./People";
@@ -33,15 +33,30 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications" | "responses" | "people" | "skills" | "control" | "profile" | "lab";
+type View = "home" | "feed" | "lab" | "applications" | "responses" | "people" | "skills" | "profile";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
+// Old links keep working: #add is on Applications, #control on Home.
+const HASH_VIEWS: Record<string, View> = {
+  "": "home", "#": "home", "#home": "home", "#control": "home", "#feed": "feed", "#lab": "lab",
+  "#applications": "applications", "#add": "applications", "#responses": "responses", "#people": "people",
+  "#skills": "skills", "#profile": "profile",
+};
 function routeFromHash(): Route {
   const m = window.location.hash.match(JOB_HASH);
   if (m) return { view: "feed", job: m[1] };
-  const view = ({ "#applications": "applications", "#add": "applications", "#profile": "profile", "#lab": "lab", "#responses": "responses", "#people": "people", "#control": "control", "#skills": "skills" } as Record<string, View>)[window.location.hash] ?? "feed";
-  return { view, job: null };
+  return { view: HASH_VIEWS[window.location.hash] ?? "home", job: null };
 }
+
+// The menu: sections, each with one or more pages (shown as sub-tabs). Home opens from the brand.
+type Section = "feed" | "applications" | "outreach" | "me";
+const SECTIONS: { key: Section; label: string; pages: { view: View; label: string }[] }[] = [
+  { key: "feed", label: "Feed", pages: [{ view: "feed", label: "Jobs" }, { view: "lab", label: "Lab" }] },
+  { key: "applications", label: "Applications", pages: [{ view: "applications", label: "Applications" }] },
+  { key: "outreach", label: "Outreach", pages: [{ view: "responses", label: "Responses" }, { view: "people", label: "People" }] },
+  { key: "me", label: "Me", pages: [{ view: "skills", label: "Skills" }, { view: "profile", label: "Profile" }] },
+];
+const sectionOf = (v: View) => SECTIONS.find((s) => s.pages.some((p) => p.view === v));
 
 // Jobs opened as tabs (like records in a ServiceNow workspace). Open tabs stay mounted, so unsaved
 // notes survive switching tabs; the list is remembered per browser.
@@ -62,6 +77,9 @@ function Shell() {
   const [view, setView] = useState<View>(route.view);       // the last list view, shown when no job tab is active
   const [tabs, setTabs] = useState<JobTab[]>(loadTabs);
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  // Each section reopens on the page last used in it.
+  const [lastPage, setLastPage] = useState<Record<string, View>>({});
+  useEffect(() => { const sec = sectionOf(view); if (sec) setLastPage((m) => ({ ...m, [sec.key]: view })); }, [view]);
 
   useEffect(() => {
     const onHash = () => {
@@ -94,7 +112,7 @@ function Shell() {
   }, [tabs]);
 
   const listHash = useRef("#");
-  useEffect(() => { listHash.current = view === "feed" ? "#" : `#${view}`; }, [view]);
+  useEffect(() => { listHash.current = view === "home" ? "#" : `#${view}`; }, [view]);
 
   const labelSetters = useRef(new Map<string, (l: string) => void>());
   const dirtySetters = useRef(new Map<string, (d: boolean) => void>());
@@ -120,19 +138,16 @@ function Shell() {
   }
 
   const activeJob = route.job;
+  const section = sectionOf(view);
   return (
     <div className="wrap">
       <header>
         <nav className="nav">
-          <span className="brand">jobsignal</span>
-          <a href="#" className={!activeJob && view === "feed" ? "active" : ""}>Feed</a>
-          <a href="#applications" className={!activeJob && view === "applications" ? "active" : ""}>Applications</a>
-          <a href="#responses" className={!activeJob && view === "responses" ? "active" : ""}>Responses</a>
-          <a href="#people" className={!activeJob && view === "people" ? "active" : ""}>People</a>
-          <a href="#skills" className={!activeJob && view === "skills" ? "active" : ""}>Skills</a>
-          <a href="#lab" className={!activeJob && view === "lab" ? "active" : ""}>Lab</a>
-          <a href="#control" className={!activeJob && view === "control" ? "active" : ""}>Control</a>
-          <a href="#profile" className={!activeJob && view === "profile" ? "active" : ""}>Profile</a>
+          <a href="#" className={`brand${!activeJob && view === "home" ? " active" : ""}`} title="Home: overview and control panel">jobsignal</a>
+          {SECTIONS.map((sec) => (
+            <a key={sec.key} href={`#${lastPage[sec.key] ?? sec.pages[0].view}`}
+               className={!activeJob && section?.key === sec.key ? "active" : ""}>{sec.label}</a>
+          ))}
         </nav>
         <div className="header-right">
           <RunNow />
@@ -156,7 +171,14 @@ function Shell() {
       ))}
       {/* The list view stays mounted behind a job tab, so going back keeps its filters and open rows. */}
       <div hidden={!!activeJob}>
-        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "control" ? <Control /> : view === "skills" ? <Skills /> : <ProfilePage />}
+        {section && section.pages.length > 1 && (
+          <div className="tabs section-tabs">
+            {section.pages.map((p) => (
+              <a key={p.view} href={`#${p.view}`} className={`tab-link${view === p.view ? " active" : ""}`}>{p.label}</a>
+            ))}
+          </div>
+        )}
+        {view === "home" ? <Home /> : view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "skills" ? <Skills /> : <ProfilePage />}
       </div>
     </div>
   );

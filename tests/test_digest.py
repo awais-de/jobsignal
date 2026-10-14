@@ -35,8 +35,8 @@ def test_source_is_named():
 
 def test_overflow_and_timeline_link():
     subject, text, html = build_digest([posting()], 5, date(2026, 10, 10), app_url="https://app.example.org")
-    assert "4 more in the timeline" in text and "Timeline (last 30 days): https://app.example.org" in text
-    assert 'href="https://app.example.org"' in html
+    assert "4 more in the timeline" in text and "Timeline (last 30 days): https://app.example.org/#feed" in text
+    assert 'href="https://app.example.org/#feed"' in html
 
 
 def test_empty_digest_links_timeline():

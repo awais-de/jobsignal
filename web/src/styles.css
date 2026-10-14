@@ -142,6 +142,29 @@ h2.day {
 .nav .brand { font-size: 20px; font-weight: 700; margin-right: 8px; }
 .nav a { color: var(--muted); text-decoration: none; font-weight: 600; padding-bottom: 2px; }
 .nav a.active { color: var(--text); border-bottom: 2px solid var(--accent); }
+.nav a.brand { color: var(--text); font-weight: 700; }
+@media (max-width: 480px) {
+  .nav { gap: 10px; flex-wrap: wrap; row-gap: 6px; }
+  .nav .brand { font-size: 17px; margin-right: 0; }
+  .nav a { font-size: 14px; }
+}
+.nav a.brand.active { border-bottom-color: transparent; }
+/* Sub-pages of a menu section (Feed: Jobs | Lab, Outreach: Responses | People, Me: Skills | Profile) */
+.section-tabs { gap: 18px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.section-tabs a.tab-link {
+  color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; padding: 4px 0 6px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+}
+.section-tabs a.tab-link.active { color: var(--text); border-bottom-color: var(--accent); }
+/* Home: overview tiles, then the control panel */
+.home h2 { font-size: 18px; margin: 0 0 10px; }
+.dash-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px; max-width: 1100px; }
+@media (max-width: 800px) { .dash-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+a.dash-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: var(--text); margin: 0; }
+a.dash-tile:hover { border-color: var(--accent); }
+.dash-value { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.dash-label { font-weight: 600; font-size: 14px; }
+.home-control { border-top: 1px solid var(--border); padding-top: 16px; }
 
 /* Applications table */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }

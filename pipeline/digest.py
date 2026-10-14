@@ -56,8 +56,10 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
     extras = extras or [{}] * len(shown)
     hidden = total - len(shown)
     subject = f"jobsignal {day:%d %b}: {total} new job{'s' if total != 1 else ''}"
-    app_text = f"\n\nTimeline (last 30 days): {app_url}" if app_url else ""
-    app_html = (f'<p style="font-size:13px"><a href="{escape(app_url)}">Open the timeline</a> '
+    # The app's root opens Home; the timeline is the Feed.
+    feed_link = f"{app_url.rstrip('/')}/#feed" if app_url else None
+    app_text = f"\n\nTimeline (last 30 days): {feed_link}" if app_url else ""
+    app_html = (f'<p style="font-size:13px"><a href="{escape(feed_link)}">Open the timeline</a> '
                 "for every job from the last 30 days.</p>") if app_url else ""
     if explore:
         line = f"Also {explore} new job{'s' if explore != 1 else ''} in Explore (directions you're testing, shown in the app only)."
@@ -117,7 +119,7 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
     text = warn_text + rem_text + "\n\n".join(text_lines) + more + app_text
     more_html = ""
     if hidden:
-        more_html = (f'<p>…and <a href="{escape(app_url)}">{hidden} more in the timeline</a>.</p>'
+        more_html = (f'<p>…and <a href="{escape(feed_link)}">{hidden} more in the timeline</a>.</p>'
                      if app_url else f"<p>…and {hidden} more.</p>")
     html = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.4">'

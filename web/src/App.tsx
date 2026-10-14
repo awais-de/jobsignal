@@ -11,7 +11,6 @@ import People from "./People";
 import Responses from "./Responses";
 import Skills from "./Skills";
 import Login from "./Login";
-import ManualAdd from "./ManualAdd";
 import ProfilePage from "./Profile";
 import RunNow from "./RunNow";
 
@@ -34,13 +33,13 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications" | "responses" | "people" | "skills" | "control" | "add" | "profile" | "lab";
+type View = "feed" | "applications" | "responses" | "people" | "skills" | "control" | "profile" | "lab";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
 function routeFromHash(): Route {
   const m = window.location.hash.match(JOB_HASH);
   if (m) return { view: "feed", job: m[1] };
-  const view = ({ "#applications": "applications", "#add": "add", "#profile": "profile", "#lab": "lab", "#responses": "responses", "#people": "people", "#control": "control", "#skills": "skills" } as Record<string, View>)[window.location.hash] ?? "feed";
+  const view = ({ "#applications": "applications", "#add": "applications", "#profile": "profile", "#lab": "lab", "#responses": "responses", "#people": "people", "#control": "control", "#skills": "skills" } as Record<string, View>)[window.location.hash] ?? "feed";
   return { view, job: null };
 }
 
@@ -131,7 +130,6 @@ function Shell() {
           <a href="#responses" className={!activeJob && view === "responses" ? "active" : ""}>Responses</a>
           <a href="#people" className={!activeJob && view === "people" ? "active" : ""}>People</a>
           <a href="#skills" className={!activeJob && view === "skills" ? "active" : ""}>Skills</a>
-          <a href="#add" className={!activeJob && view === "add" ? "active" : ""}>+ Add</a>
           <a href="#lab" className={!activeJob && view === "lab" ? "active" : ""}>Lab</a>
           <a href="#control" className={!activeJob && view === "control" ? "active" : ""}>Control</a>
           <a href="#profile" className={!activeJob && view === "profile" ? "active" : ""}>Profile</a>
@@ -158,7 +156,7 @@ function Shell() {
       ))}
       {/* The list view stays mounted behind a job tab, so going back keeps its filters and open rows. */}
       <div hidden={!!activeJob}>
-        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "control" ? <Control /> : view === "skills" ? <Skills /> : <ProfilePage />}
+        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "control" ? <Control /> : view === "skills" ? <Skills /> : <ProfilePage />}
       </div>
     </div>
   );

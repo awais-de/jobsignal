@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import EmailQueue, { gmailLink } from "./EmailQueue";
+import ManualAdd, { type Saved } from "./ManualAdd";
 import { CoverLetter, RESUME_COLUMNS, ResumeLink, ResumePicker, ResumeText, type Resume } from "./Resumes";
 import { PING_COLUMNS, type Ping } from "./Outreach";
 import { buildPrepPrompt, INTERVIEW_KINDS } from "./prep";
@@ -99,7 +100,12 @@ const STATUS_FILTERS: { key: string; label: string; test: (s: string, r: Reach) 
   { key: "all", label: "All", test: () => true },
 ];
 
+/** A manual-entry tab on this page: stays open after saving until closed. */
+type ManualTab = { key: number; saved: Saved | null; dirty: boolean };
+
 export default function Applications() {
+  const [manual, setManual] = useState<ManualTab[]>([]);
+  const [pane, setPane] = useState<"list" | number>("list");
   const [apps, setApps] = useState<App[] | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [open, setOpen] = useState<string | null>(null);
@@ -258,8 +264,58 @@ export default function Applications() {
     setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, notes: v } : a)));
   }
 
+  function newManual() {
+    const key = Date.now();
+    setManual((m) => [...m, { key, saved: null, dirty: false }]);
+    setPane(key);
+  }
+  const updateManual = (key: number, f: Partial<ManualTab>) =>
+    setManual((m) => m.map((t) => (t.key === key ? { ...t, ...f } : t)));
+  function closeManual(t: ManualTab) {
+    if (t.dirty && !window.confirm("This entry isn't saved. Close it anyway?")) return;
+    setManual((m) => m.filter((x) => x.key !== t.key));
+    if (pane === t.key) setPane("list");
+  }
+
+  const tabStrip = (
+    <div className="page-tabs-row">
+    <div className="job-tabs page-tabs" role="tablist">
+      <div className={`job-tab${pane === "list" ? " active" : ""}`} role="tab" aria-selected={pane === "list"}>
+        <button className="tab-label" onClick={() => setPane("list")}>Applications</button>
+      </div>
+      {manual.map((t, i) => (
+        <div key={t.key} className={`job-tab${pane === t.key ? " active" : ""}`} role="tab" aria-selected={pane === t.key}>
+          <button className="tab-label" title={t.saved?.label} onClick={() => setPane(t.key)}>
+            {t.dirty && <span className="unsaved" aria-label="unsaved">● </span>}
+            {t.saved ? `✓ ${t.saved.label}` : `New manual job${manual.length > 1 ? ` ${i + 1}` : ""}`}
+          </button>
+          <button className="link" aria-label="Close tab" onClick={() => closeManual(t)}>×</button>
+        </div>
+      ))}
+    </div>
+    <button className="small add-tab" onClick={newManual}>+ Create manual job</button>
+    </div>
+  );
+
+  return (
+    <>
+      {tabStrip}
+      {/* Manual tabs stay mounted while hidden, so switching back keeps what was typed. */}
+      {manual.map((t) => (
+        <div key={t.key} hidden={pane !== t.key}>
+          <ManualAdd onDirty={(d) => updateManual(t.key, { dirty: d })}
+                     onSaved={(sv) => { updateManual(t.key, { saved: sv, dirty: false }); load(); }} />
+        </div>
+      ))}
+      <div hidden={pane !== "list"}>
+        {applicationsList()}
+      </div>
+    </>
+  );
+
+  function applicationsList() {
   if (apps === null) return <p className="empty">{error ?? "Loading…"}</p>;
-  if (apps.length === 0) return <p className="empty">No applications yet. Tap Apply on a job in the feed.</p>;
+  if (apps.length === 0) return <p className="empty">No applications yet. Tap Apply on a job in the feed, or create a manual job above.</p>;
 
   const test = STATUS_FILTERS.find((f) => f.key === filter)!.test;
   const rows = apps.filter((a) => test(statusOf(a.id)?.event_type ?? "drafted", reach(a.id)));
@@ -393,6 +449,7 @@ export default function Applications() {
       {toast && <div className="toast">{toast}</div>}
     </>
   );
+  }
 }
 
 function Detail({ app, events, onNotes, onJd, onEventDate, onInterview, onPosting, onApplied, onDelete, children }: {

@@ -349,6 +349,16 @@ button.event-date { padding: 0; color: var(--muted); font-size: inherit; text-de
 .job-tab.active a { color: var(--text); font-weight: 600; }
 .job-tab .dot { color: var(--accent); }
 .job-tab button.link { padding: 2px 8px; font-size: 16px; line-height: 1; }
+/* In-page tabs (Applications: the list plus manual-entry tabs) */
+.page-tabs-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.page-tabs { flex: 1 1 auto; min-width: 0; align-items: flex-end; margin: 0; border-bottom: none; }
+.job-tab .unsaved { color: var(--accent); font-size: 10px; vertical-align: 1px; }
+.job-tab button.tab-label {
+  background: none; border: none; padding: 5px 10px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
+}
+.job-tab.active button.tab-label { color: var(--text); font-weight: 600; }
+.page-tabs-row .add-tab { flex: 0 0 auto; margin-bottom: 4px; white-space: nowrap; }
 a.link-button {
   display: inline-block; font-size: 14px; padding: 6px 10px; border-radius: 6px; text-decoration: none;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);

@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RESUME_COLUMNS, ResumePicker, type Resume } from "./Resumes";
 import { supabase } from "./supabase";
 
 // Manual add (spec 9.3): paste a URL or the job text, review what was extracted, save as applied.
+// Opened as an in-page tab on the Applications page; after saving it stays open (closeable) and shows
+// what was saved.
 
 type Fields = Record<string, any>;
 
@@ -17,7 +19,13 @@ const ERRORS: Record<string, string> = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function ManualAdd() {
+export type Saved = { application_id: string; job_posting_id: string | null; label: string };
+
+export default function ManualAdd({ onSaved, onDirty }: {
+  onSaved?: (s: Saved) => void;
+  /** Something typed but not saved yet (closing the tab asks first). */
+  onDirty?: (dirty: boolean) => void;
+}) {
   const [mode, setMode] = useState<"url" | "text">("url");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
@@ -28,6 +36,12 @@ export default function ManualAdd() {
   const [appliedOn, setAppliedOn] = useState(today());
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [resumeId, setResumeId] = useState<string | null>(null);
+  const [saved, setSaved] = useState<Saved | null>(null);
+
+  const dirty = !saved && !!(url || text || fields);
+  const onDirtyRef = useRef(onDirty);
+  onDirtyRef.current = onDirty;
+  useEffect(() => { onDirtyRef.current?.(dirty); }, [dirty]);
 
   useEffect(() => {
     supabase.from("resumes").select(RESUME_COLUMNS).is("deleted_at", null).order("created_at", { ascending: false })
@@ -64,10 +78,25 @@ export default function ManualAdd() {
     const body = data ?? (await readError(error));
     if (body?.error) return setError(body.error === "title_and_company_required"
       ? "Title and company are required." : "Saving failed. Try again.");
-    window.location.hash = "#applications";
+    const s: Saved = { application_id: body.application_id, job_posting_id: body.job_posting_id ?? null,
+                       label: `${fields.company_name} – ${fields.title}` };
+    setSaved(s);
+    onSaved?.(s);
   }
 
   const set = (k: string, v: string) => setFields((f) => ({ ...f, [k]: v }));
+
+  if (saved) {
+    return (
+      <div className="add">
+        <div className="card review">
+          <p><strong>Saved:</strong> {saved.label}, applied on {new Date(appliedOn + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}.</p>
+          <p className="muted">It's in the applications list now. Close this tab when you're done.</p>
+          {saved.job_posting_id && <a className="link-button small" href={`#job/${saved.job_posting_id}`}>Open the job</a>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="add">

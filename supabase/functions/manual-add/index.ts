@@ -3,7 +3,7 @@
 //
 // POST, owner session required (Authorization: Bearer <access token>):
 //   { op: "analyse", url?, text? }  -> { fields, description, url }
-//   { op: "save", posting: {...}, applied_at?, resume_id? } -> { application_id }
+//   { op: "save", posting: {...}, applied_at?, resume_id? } -> { application_id, job_posting_id }
 //
 // Extraction uses the same prompt and schema as the daily pipeline (_shared/jd_extraction.json).
 
@@ -194,7 +194,7 @@ async function save(body: Record<string, any>) {
     method: "POST",
     body: JSON.stringify({ application_id: appId, event_type: "applied", source: "user", occurred_at: appliedAt }),
   });
-  return json({ application_id: appId });
+  return json({ application_id: appId, job_posting_id: postingId });
 }
 
 // ---- handler ----------------------------------------------------------------------

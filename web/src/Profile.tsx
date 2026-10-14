@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { classify, MODE_LABELS, type Family, type FamilyMode } from "./families";
 import { saveProfile } from "./profileStore";
-import { BaseCvs } from "./CvBase";
 import { ConnectionsImport } from "./Outreach";
 import { supabase } from "./supabase";
 
@@ -152,7 +151,10 @@ export default function ProfilePage() {
         </div>
       </section>
       <ConnectionsImport />
-      <BaseCvs />
+      <section className="card">
+        <h3>CVs</h3>
+        <p className="muted">Your CV formats (LaTeX) and the master CV's content are on <a href="#mastercv">Me → Master CV</a>.</p>
+      </section>
 
       <section className="card">
         <h3>Watched companies</h3>

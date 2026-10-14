@@ -414,7 +414,8 @@ def _skills_from_db(db: Database, profile: dict[str, Any]) -> None:
         return
     profile["skills"] = skills
     profile["_version"] = f"{profile['_version']}.{stamp}"
-    log.info("skills: %d from the skills database", sum(len(v) for v in skills.values()))
+    # (not "skills: …": GitHub masks that, it is a line of the PROFILE_YAML secret)
+    log.info("skill list from the skills database: %d skills", sum(len(v) for v in skills.values()))
 
 
 def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: datetime) -> int:

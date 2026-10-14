@@ -138,7 +138,10 @@ export default function Control() {
 
         <Card title="Digest and web app" warn={[]}>
           <Kv k="Last digest" v={s.db.runs?.[0]?.status === "success" ? `sent ${when(s.db.runs[0].finished_at)} (${s.db.runs[0].surfaced ?? 0} jobs)` : "last run didn't finish"} />
-          <Kv k="Web app version" v={`${__BUILD_COMMIT__}${s.github.latest_commit ? (s.github.latest_commit === __BUILD_COMMIT__ ? " (latest)" : ` (latest is ${s.github.latest_commit}: reload)`) : ""}`} />
+          {/* The build can't see its commit on Cloudflare, so build time is compared with the latest commit's time. */}
+          <Kv k="Web app" v={`built ${when(__BUILD_TIME__)}` + (s.github.latest_commit_at
+            ? (new Date(__BUILD_TIME__).getTime() + 5 * 60000 >= new Date(s.github.latest_commit_at).getTime()
+                ? " (latest)" : ` (a newer change from ${when(s.github.latest_commit_at)} is deploying: reload in a minute)`) : "")} />
           <Kv k="Healthchecks.io" v={s.healthchecks?.configured
             ? (s.healthchecks.checks ?? []).map((c: any) => `${c.name}: ${c.status}`).join(" · ") || s.healthchecks.error  // eslint-disable-line @typescript-eslint/no-explicit-any
             : "add HEALTHCHECKS_API_KEY to show (optional)"} />

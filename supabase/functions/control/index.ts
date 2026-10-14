@@ -63,7 +63,7 @@ function parseExpiry(exp: string | null): string | null {
   return null;
 }
 
-async function github(): Promise<Status["github"] & { latest_commit?: string | null }> {
+async function github(): Promise<Status["github"] & { latest_commit?: string | null; latest_commit_at?: string | null }> {
   if (!TOKEN) return { configured: false, ok: false, workflows: [], failures_24h: [] };
   const h = { Authorization: `Bearer ${TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "jobsignal" };
   const res = await timed(fetch(`https://api.github.com/repos/${REPO}/actions/runs?per_page=50`, { headers: h }), 10000);
@@ -76,13 +76,17 @@ async function github(): Promise<Status["github"] & { latest_commit?: string | n
   const since = Date.now() - 86400_000;
   const failures_24h = runs.filter((r) => r.conclusion === "failure" && new Date(r.created_at).getTime() > since)
     .map((r) => ({ name: r.name, created_at: r.created_at, url: r.html_url }));
-  let latest_commit: string | null = null;
+  let latest_commit: string | null = null, latest_commit_at: string | null = null;
   try {
     const c = await timed(fetch(`https://api.github.com/repos/${REPO}/commits/main`, { headers: h }), 8000);
-    if (c.ok) latest_commit = String((await c.json()).sha ?? "").slice(0, 7) || null;
+    if (c.ok) {
+      const body = await c.json();
+      latest_commit = String(body.sha ?? "").slice(0, 7) || null;
+      latest_commit_at = body.commit?.committer?.date ?? null;
+    }
   } catch { /* optional */ }
   return { configured: true, ok: true, token_expires: parseExpiry(exp),
-           workflows: [...latest.values()], failures_24h, latest_commit };
+           workflows: [...latest.values()], failures_24h, latest_commit, latest_commit_at };
 }
 
 async function drive(): Promise<Status["drive"]> {

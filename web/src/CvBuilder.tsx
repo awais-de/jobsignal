@@ -4,6 +4,7 @@ import { BASE_COLUMNS, type BaseCv } from "./CvBase";
 import {
   cvFileName, emptyDraft, entryOn, parseCv, plainCv, renderCv, rowOn, type Draft, type Entry, type Field, type ParsedCV,
 } from "./cvtex";
+import { useSkills } from "./skills-data";
 import { supabase } from "./supabase";
 
 // CV builder on a job's page: start from a base version, tick the bullets that fit (all start off), edit
@@ -34,6 +35,7 @@ export default function CvBuilder({ job, active }: {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sk = useSkills(false);
 
   useEffect(() => {
     supabase.from("base_cvs").select(BASE_COLUMNS).is("deleted_at", null).order("version", { ascending: false })
@@ -152,7 +154,10 @@ export default function CvBuilder({ job, active }: {
           <span className="muted small">Job's skills in your CV:</span>
           {keywords.map((k) => (
             <span key={`${k.must}-${k.s}`} className={`skill ${k.hit ? "hit" : k.must ? "miss" : "plain"}`} title={k.must ? "Must-have" : "Nice to have"}>
-              {k.hit ? "✓ " : ""}{k.s}
+              {k.hit ? "✓ " : ""}{k.s}{(() => {
+                const m = sk.index?.match(k.s); const r = m ? sk.ratingOf(m.id) : null;
+                return r == null ? "" : ` · ${r}/10`;
+              })()}
             </span>
           ))}
           <span className="muted small">{keywords.filter((k) => k.must && k.hit).length}/{keywords.filter((k) => k.must).length} must-haves</span>

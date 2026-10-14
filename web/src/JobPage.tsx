@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDate, label as skipLabel, Why } from "./Feed";
 import { buildTailorPrompt, emptyNotes, NOTE_FIELDS, notesEqual, parseNotes, serializeNotes, type Notes } from "./notes";
 import CvBuilder from "./CvBuilder";
+import JobSkills from "./JobSkills";
 import OutreachPanel from "./Outreach";
 import { buildPrepPrompt } from "./prep";
 import { RESUME_COLUMNS, type Resume } from "./Resumes";
@@ -31,6 +32,7 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
   const [cvId, setCvId] = useState<string>("");
   const [skipping, setSkipping] = useState(false);
   const [pane, setPane] = useState<"notes" | "cv">("notes");
+  const [skillLines, setSkillLines] = useState<string>("");
   const [sender, setSender] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -99,9 +101,9 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
     const notes = serializeNotes(draft);
     try {
       const text = kind === "tailor"
-        ? buildTailorPrompt({ company: job.company_name, title: job.title, jd, notes, cv })
+        ? buildTailorPrompt({ company: job.company_name, title: job.title, jd, notes, cv, skills: skillLines })
         : await buildPrepPrompt({ applicationId: app!.id, company: job.company_name, title: job.title,
-                                  appliedAt: app!.applied_at, jd, resumeId: app!.resume_id, notes });
+                                  appliedAt: app!.applied_at, jd, resumeId: app!.resume_id, notes, skills: skillLines });
       await navigator.clipboard.writeText(text);
       flash(kind === "tailor" ? "CV-tailoring prompt copied" : "Interview-prep prompt copied");
     } catch {
@@ -223,13 +225,7 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
                   job.required_years != null ? `${job.required_years}+ years` : null,
                   job.seniority].filter(Boolean).join(" · ")}
               </div>
-              <div className="req-skills">
-                {reqs.map(({ s, must }) => (
-                  <span key={`${must}-${s}`} className={`skill ${(job.rank_details?.matched ?? []).includes(s) ? "hit"
-                    : (job.rank_details?.missing ?? []).includes(s) ? "miss" : "plain"}`}
-                        title={must ? "Must-have" : "Nice to have"}>{s}{must ? "" : " (nice)"}</span>
-                ))}
-              </div>
+              <JobSkills jobId={job.id} must={job.must_have_skills ?? []} nice={job.nice_to_have_skills ?? []} onLines={setSkillLines} />
             </>
           )}
           <h3>Job description{app?.jd_snapshot ? " (saved copy)" : ""}</h3>

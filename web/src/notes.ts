@@ -53,6 +53,7 @@ export const notesEqual = (a: Notes, b: Notes) => NOTE_FIELDS.every((f) => a[f.k
 export function buildTailorPrompt(a: {
   company: string; title: string; jd: string | null; notes: string | null;
   cv: { uid: string; label: string | null; extracted_text: string | null } | null;
+  skills?: string;          // my honest self-ratings for this job's skills (skills database)
 }): string {
   const section = (title: string, body: string) => `## ${title}\n${body.trim()}\n`;
   return [
@@ -73,6 +74,9 @@ export function buildTailorPrompt(a: {
     section("Company and role", `${a.company} – ${a.title}`),
     section("Job description", a.jd || "(no job description stored — paste it here)"),
     section("My notes for this job", notesForPrompt(a.notes) || "(no notes yet)"),
+    ...(a.skills ? [section("My honest self-ratings for this job's skills (0–10)",
+      `${a.skills}\n\nUse these to lead with real strengths. Where I present a skill above my base rating, help me back it with ` +
+      "evidence I actually have (projects, courses, adjacent tools); never claim more than the evidence supports.")] : []),
     section(`My base CV${a.cv ? ` (${a.cv.uid}${a.cv.label ? `, ${a.cv.label}` : ""})` : ""}`,
       a.cv?.extracted_text || "(CV text not stored — attach or paste my CV here)"),
   ].join("\n");

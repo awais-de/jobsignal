@@ -16,6 +16,7 @@ type PrepInput = {
   jd: string | null;
   resumeId: string | null;
   notes?: string | null;   // the job's notepad (labelled sections)
+  skills?: string;         // my honest self-ratings for this job's skills (skills database)
 };
 
 const fmt = (iso: string | null, time = false) =>
@@ -65,6 +66,9 @@ export async function buildPrepPrompt(a: PrepInput): Promise<string> {
       : "(no interview email on record)"),
     section("Job description", a.jd || "(no job description stored — paste it here)"),
     ...(a.notes ? [section("My notes for this job", notesForPrompt(a.notes)!)] : []),
+    ...(a.skills ? [section("My honest self-ratings for this job's skills (0–10)",
+      `${a.skills}\n\nPrepare me realistically: for weak or presented-above-base skills, give likely probing questions and honest ` +
+      "ways to answer from my real experience.")] : []),
     section(`My CV${cv ? ` (${cv.uid}${cv.label ? `, ${cv.label}` : ""})` : ""}`, cv?.extracted_text
       || "(CV text not stored — attach or paste the CV I sent here)"),
   ].join("\n");

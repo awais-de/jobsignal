@@ -89,3 +89,12 @@ def test_explore_jobs_get_their_own_line_not_the_subject_count():
     assert "Also 15 new jobs in Explore" in text and "Also 15 new jobs in Explore" in html
     subject, text, _ = build_digest([posting()], 1, date(2026, 10, 13))
     assert "Explore" not in text
+
+
+def test_app_warnings_come_first_in_the_digest():
+    w = [{"level": "red", "area": "GitHub", "text": "The GitHub token expires in 2 day(s)."}]
+    _, text, html = build_digest([posting()], 1, date(2026, 10, 14), app_url="https://app.example", warnings=w)
+    assert text.startswith("App warnings:\n[RED] GitHub: The GitHub token expires")
+    assert "https://app.example/#control" in text and "App warnings" in html
+    _, text, _ = build_digest([posting()], 1, date(2026, 10, 14))
+    assert "App warnings" not in text

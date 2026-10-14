@@ -437,3 +437,7 @@ verify_jwt = false
 [functions.cv-save]
 # Verifies the owner session itself (auth /user + app_owner).
 verify_jwt = false
+
+[functions.control]
+# Verifies the owner session (or the cron secret) itself.
+verify_jwt = false

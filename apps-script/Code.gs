@@ -9,6 +9,8 @@
  * Setup: Project Settings → Script Properties → INGEST_URL, INGEST_SECRET; then run setup() once.
  */
 
+// Bump when this file changes; the control panel warns when the installed copy is older.
+const BRIDGE_VERSION = '2026-10-14';
 const LOOKBACK_FIRST_RUN_DAYS = 3;   // how far back the very first run looks
 const OVERLAP_MS = 60 * 60 * 1000;   // re-check the last hour each run (server dedupes)
 const MAX_THREADS = 50;
@@ -52,6 +54,7 @@ function processInbox() {
             // HTML part and an attached .ics, not in the plain text.
             body_html_text: htmlText(msg),
             ics: calendarInvite(msg),
+            bridge_version: BRIDGE_VERSION,
           }),
         });
         if (res.getResponseCode() >= 300) {
@@ -131,6 +134,12 @@ function doPost(e) {
     const props = PropertiesService.getScriptProperties();
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (!req.secret || req.secret !== props.getProperty('INGEST_SECRET')) return jsonOut({ error: 'forbidden' });
+    if (req.action === 'ping') {
+      // Control panel check: reachable, version, and whether the Resumes folder is found.
+      let folder = null, folderError = null;
+      try { folder = resumesFolder(props).getName(); } catch (err) { folderError = String(err && err.message || err); }
+      return jsonOut({ ok: true, version: BRIDGE_VERSION, folder: folder, folder_error: folderError });
+    }
     if (req.action !== 'save_cv') return jsonOut({ error: 'unknown_action' });
     const blob = Utilities.newBlob(Utilities.base64Decode(req.pdf), 'application/pdf', req.name || 'CV.pdf');
     const file = resumesFolder(props).createFile(blob);

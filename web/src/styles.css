@@ -548,3 +548,27 @@ pre.build-error { flex-basis: 100%; white-space: pre-wrap; font-size: 12px; back
 ul.base-list { list-style: none; padding: 0; margin: 6px 0; font-size: 14px; }
 ul.base-list li { padding: 5px 0; border-top: 1px solid var(--border); }
 .profile textarea.mono { width: 100%; resize: vertical; }
+
+/* Control panel */
+.control { max-width: 1100px; }
+.control-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.control-bar h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.dot-green { background: var(--apply); }
+.dot-amber { background: #d29922; }
+.dot-red { background: var(--danger); }
+.control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; margin: 12px 0; }
+.control-card { min-width: 0; }
+.control-card h3, .control h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.kv > span:last-child { text-align: right; overflow-wrap: anywhere; }
+.kv-bar { margin: 4px 0 6px; }
+.control table.apps.mini { font-size: 12px; margin: 6px 0; }
+.control table.apps.mini th, .control table.apps.mini td { padding: 4px 6px; }
+.control .warnings ul { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+.control .warnings li { padding: 4px 0; }
+.control .warnings .status { margin-right: 6px; }
+.control pre { background: var(--bg); padding: 6px 8px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+/* Small tables never push past their card: they scroll sideways inside it on narrow screens. */
+.control table.apps.mini { display: block; max-width: 100%; overflow-x: auto; }
+@media (max-width: 480px) { .control table.apps.mini th, .control table.apps.mini td { padding: 3px 4px; font-size: 11px; } }

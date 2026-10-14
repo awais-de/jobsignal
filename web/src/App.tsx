@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 import ActionPage from "./ActionPage";
 import Applications from "./Applications";
 import Feed from "./Feed";
+import Control from "./Control";
 import JobPage from "./JobPage";
 import Lab from "./Lab";
 import People from "./People";
@@ -32,13 +33,13 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "feed" | "applications" | "responses" | "people" | "add" | "profile" | "lab";
+type View = "feed" | "applications" | "responses" | "people" | "control" | "add" | "profile" | "lab";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
 function routeFromHash(): Route {
   const m = window.location.hash.match(JOB_HASH);
   if (m) return { view: "feed", job: m[1] };
-  const view = ({ "#applications": "applications", "#add": "add", "#profile": "profile", "#lab": "lab", "#responses": "responses", "#people": "people" } as Record<string, View>)[window.location.hash] ?? "feed";
+  const view = ({ "#applications": "applications", "#add": "add", "#profile": "profile", "#lab": "lab", "#responses": "responses", "#people": "people", "#control": "control" } as Record<string, View>)[window.location.hash] ?? "feed";
   return { view, job: null };
 }
 
@@ -130,6 +131,7 @@ function Shell() {
           <a href="#people" className={!activeJob && view === "people" ? "active" : ""}>People</a>
           <a href="#add" className={!activeJob && view === "add" ? "active" : ""}>+ Add</a>
           <a href="#lab" className={!activeJob && view === "lab" ? "active" : ""}>Lab</a>
+          <a href="#control" className={!activeJob && view === "control" ? "active" : ""}>Control</a>
           <a href="#profile" className={!activeJob && view === "profile" ? "active" : ""}>Profile</a>
         </nav>
         <div className="header-right">
@@ -154,7 +156,7 @@ function Shell() {
       ))}
       {/* The list view stays mounted behind a job tab, so going back keeps its filters and open rows. */}
       <div hidden={!!activeJob}>
-        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : <ProfilePage />}
+        {view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "add" ? <ManualAdd /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "control" ? <Control /> : <ProfilePage />}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import httpx
@@ -250,6 +250,13 @@ class Database:
     # -- tracking ---------------------------------------------------------------
     def expire_stale_applications(self, days: int) -> int:
         return int(self._req("POST", "/rpc/expire_stale_applications", json={"p_days": days}) or 0)
+
+    def control_warnings(self, max_age_hours: int = 24) -> list[dict[str, str]] | None:
+        """Warnings of the latest control-panel snapshot (taken 05:07 UTC), or None when there is none recent."""
+        since = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        rows = self._req("GET", "/control_snapshots", params={
+            "select": "warnings", "created_at": f"gte.{since.isoformat()}", "order": "created_at.desc", "limit": 1})
+        return rows[0]["warnings"] if rows else None
 
     def outreach_rows(self, since: date) -> tuple[list[dict], list[dict], list[dict]]:
         """Recent applications, their status and all pings: the inputs of the digest's outreach reminders."""

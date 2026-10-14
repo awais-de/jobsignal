@@ -290,12 +290,15 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
     reminders = _reminders(db, now) if db else []
+    warnings_list = _optional("control warnings", lambda: db.control_warnings()) if db else None
+    warnings_list = warnings_list if isinstance(warnings_list, list) else []
+    stats["control_warnings"] = len(warnings_list)
     stats["outreach_reminders"] = len(reminders)
     # The count in the email matches the feed's timeline: core jobs; explore jobs get their own line.
     n_explore = sum(c.lane == "explore" for c in passed)
     subject, text, html = build_digest([c.raw for c in surface], len(passed) - n_explore, now.date(), links, app_url,
                                        extras=[c.enrichment for c in surface], reminders=reminders,
-                                       explore=n_explore)
+                                       explore=n_explore, warnings=warnings_list)
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"

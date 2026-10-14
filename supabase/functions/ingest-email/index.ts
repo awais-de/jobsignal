@@ -124,6 +124,7 @@ async function handle(req: Request): Promise<Response> {
       gmail_message_id: m.gmail_message_id, gmail_thread_id: m.gmail_thread_id ?? null,
       from_address: from.address, from_name: from.name || null, from_domain: from.domain || null,
       to_address: (m.to ?? "").slice(0, 300), subject, received_at: receivedAt, body_text: body,
+      bridge_version: (m.bridge_version ?? "").slice(0, 20) || null,
     }),
   });
   if (!inserted?.length) return json({ duplicate: true, actions: [] });

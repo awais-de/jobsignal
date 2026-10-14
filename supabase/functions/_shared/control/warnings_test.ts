@@ -53,3 +53,12 @@ Deno.test("expired or refused GitHub token is red", () => {
   s.github = { configured: true, ok: false, error: "HTTP 401", workflows: [], failures_24h: [] };
   assertEquals(warnings(s, NOW)[0], { level: "red", area: "GitHub", text: "GitHub refused the token (HTTP 401): it may have expired." });
 });
+
+Deno.test("a workflow failure already followed by a success is not a warning", () => {
+  const s = ok();
+  s.github.failures_24h = [{ name: "cv-compile", created_at: "2026-10-13T18:44:00Z", url: "" }];
+  s.github.workflows = [{ name: "cv-compile", status: "completed", conclusion: "success", created_at: "2026-10-13T20:47:00Z", url: "" }];
+  assertEquals(warnings(s, NOW), []);
+  s.github.workflows = [{ name: "cv-compile", status: "completed", conclusion: "failure", created_at: "2026-10-13T18:44:00Z", url: "" }];
+  assertEquals(warnings(s, NOW).map((x) => x.area), ["GitHub"]);
+});

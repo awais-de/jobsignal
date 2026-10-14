@@ -71,8 +71,12 @@ export function warnings(s: Status, now = new Date()): Warning[] {
     if (days < 3) add("red", "GitHub", `The GitHub token expires in ${Math.max(0, Math.floor(days))} day(s): create a new one.`);
     else if (days < 14) add("amber", "GitHub", `The GitHub token expires in ${Math.floor(days)} days.`);
   }
-  for (const f of s.github.failures_24h ?? []) {
-    if (f.name !== "daily-pipeline") add("amber", "GitHub", `Workflow "${f.name}" failed (${f.created_at.slice(11, 16)} UTC).`);
+  // Only a workflow whose most recent run failed: a failure already followed by a success is history.
+  const latest = new Map((s.github.workflows ?? []).map((x) => [x.name, x.conclusion]));
+  for (const name of new Set((s.github.failures_24h ?? []).map((f) => f.name))) {
+    if (name === "daily-pipeline" || latest.get(name) !== "failure") continue;
+    const f = (s.github.failures_24h ?? []).find((x) => x.name === name)!;
+    add("amber", "GitHub", `Workflow "${name}" failed on its last run (${f.created_at.slice(11, 16)} UTC).`);
   }
 
   // Email bridge: silent, outdated, or emails waiting.

@@ -4,7 +4,7 @@
 //
 // The text, Markdown-like:
 //   # Berufserfahrung                       a section (title as on the CV)
-//   ## Razor Group GmbH | 11/2023 – 06/2024 an entry's first heading line (left | right)
+//   ## Beispiel GmbH | 11/2023 – 06/2024    an entry's first heading line (left | right)
 //   Data Engineer | Berlin, Deutschland     its second heading line (left | right), optional
 //   > E-Commerce (…)                        its context line, optional
 //   - Designed and led …                    a bullet (a following line without a marker continues it)

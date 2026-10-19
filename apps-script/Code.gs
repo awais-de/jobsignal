@@ -10,11 +10,14 @@
  */
 
 // Bump when this file changes; the control panel warns when the installed copy is older.
-const BRIDGE_VERSION = '2026-10-14';
+const BRIDGE_VERSION = '2026-10-19';
 const LOOKBACK_FIRST_RUN_DAYS = 3;   // how far back the very first run looks
 const OVERLAP_MS = 60 * 60 * 1000;   // re-check the last hour each run (server dedupes)
 const MAX_THREADS = 50;
 const MAX_BODY = 20000;
+// The plain text gets more room: StepStone's tracking links (~1.7 KB each) used to fill 20,000 characters before
+// the last jobs. The ingest function replaces them with short job addresses and stores at most 20,000.
+const MAX_PLAIN = 150000;
 
 function processInbox() {
   const props = PropertiesService.getScriptProperties();
@@ -49,7 +52,7 @@ function processInbox() {
             to: msg.getTo(),
             subject: msg.getSubject(),
             date: msg.getDate().toISOString(),
-            body_text: (msg.getPlainBody() || '').slice(0, MAX_BODY),
+            body_text: (msg.getPlainBody() || '').slice(0, MAX_PLAIN),
             // Booking tools (Microsoft Bookings, Calendly, calendar invites) put the date and time in the
             // HTML part and an attached .ics, not in the plain text.
             body_html_text: htmlText(msg),

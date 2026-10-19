@@ -8,7 +8,7 @@ export type Category =
 
 export type Classification = { category: Category; confidence: number; candidates: Category[] };
 
-// Job-alert senders (spec 7.1 tier 5). Parsed into postings in Phase 6; ignored until then.
+// Job-alert senders (spec 7.1 tier 5). StepStone's are parsed into postings by the pipeline (sources/alerts.py).
 const ALERT_DOMAINS = ["linkedin.com", "xing.com", "stepstone.de", "stepstone.com", "indeed.com", "indeed.de",
                        "jobs.lever.co", "glassdoor.com", "glassdoor.de"];
 const ALERT_SUBJECT = /\b(job ?alert|jobs? für sie|neue jobs|new jobs for you|jobs you might|passende jobs|job-empfehlungen|jobempfehlung)\b/i;
@@ -36,6 +36,8 @@ const PRIORITY: Category[] = ["offer", "interview_scheduled", "interview_invitat
 
 export function classify(fromDomain: string, subject: string, body: string): Classification {
   const domain = fromDomain.toLowerCase();
+  // StepStone's job agent only sends jobs, whatever the subject ("Du passt perfekt: …", "Wenig Bewerber bisher").
+  if (/(^|\.)jobagent\.stepstone\.(de|com)$/.test(domain)) return { category: "job_alert", confidence: 0.95, candidates: ["job_alert"] };
   if (ALERT_DOMAINS.some((d) => domain === d || domain.endsWith("." + d)) && (ALERT_SUBJECT.test(subject) || /job/i.test(subject))) {
     return { category: "job_alert", confidence: 0.9, candidates: ["job_alert"] };
   }

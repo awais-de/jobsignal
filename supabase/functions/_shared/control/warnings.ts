@@ -11,7 +11,7 @@ export const FREE_LIMITS = {
 };
 
 /** Bump together with BRIDGE_VERSION in apps-script/Code.gs. */
-export const EXPECTED_BRIDGE_VERSION = "2026-10-14";
+export const EXPECTED_BRIDGE_VERSION = "2026-10-19";
 
 export type Status = {
   db: {

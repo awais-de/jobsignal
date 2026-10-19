@@ -27,7 +27,8 @@ SOURCE_PREFERENCE = {"manual": 0, "careers": 1, "ba_api": 3, "arbeitnow": 4, "ad
 
 
 def preference(source: str) -> int:
-    return SOURCE_PREFERENCE.get(source, 9)
+    # alert_stepstone, alert_linkedin, …: alert emails rank last (spec 7.3.2).
+    return SOURCE_PREFERENCE.get(source, SOURCE_PREFERENCE["alert"] if source.startswith("alert") else 9)
 
 
 @dataclass

@@ -26,6 +26,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   arbeitnow: "Arbeitnow",
   manual: "Added by hand",
   sample: "Sample",
+  alert_stepstone: "StepStone alert",
 };
 
 export function sourceLabel(source: string): string {

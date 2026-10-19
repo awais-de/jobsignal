@@ -314,6 +314,8 @@ header { flex-wrap: wrap; }
 @media (prefers-color-scheme: dark) { .source-careers { background: #033a16; color: #7ee787; } }
 .source-arbeitnow { background: #fff1e5; color: #953800; }
 @media (prefers-color-scheme: dark) { .source-arbeitnow { background: #4a2800; color: #ffb77c; } }
+.source-alert_stepstone { background: #e6f6f6; color: #0b5d61; }
+@media (prefers-color-scheme: dark) { .source-alert_stepstone { background: #06393b; color: #7ce0e3; } }
 
 /* Profile page */
 .profile { max-width: 980px; }

@@ -144,6 +144,17 @@ class Database:
         for chunk in _chunks(ids, 500):
             self._req("POST", "/rpc/touch_postings", json={"ids": chunk})
 
+    # -- job-alert emails (spec 7.1 tier 5) ---------------------------------------------
+    def unparsed_alerts(self, domain_like: str, since: datetime) -> list[dict[str, Any]]:
+        return self._req("GET", "/inbound_emails", params={
+            "select": "id,subject,body_text,received_at", "category": "eq.job_alert", "parsed_at": "is.null",
+            "from_domain": f"like.{domain_like}", "received_at": f"gte.{since.isoformat()}", "body_text": "not.is.null",
+            "order": "received_at", "limit": 200})
+
+    def mark_alerts_parsed(self, counts: dict[str, int]) -> None:
+        if counts:
+            self._req("POST", "/rpc/mark_alerts_parsed", json={"counts": counts})
+
     # -- ghost score (spec 7.8) --------------------------------------------------------
     GHOST_COLUMNS = ("id,source,company_name,posted_date,repost_count,reappear_count,poster_type,evergreen_language,"
                      "specificity_score,named_contact,start_date_text,reference_number,extraction_status")

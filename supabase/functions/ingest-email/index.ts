@@ -3,6 +3,7 @@
 // Response: { duplicate?, category, match_status, actions: [...] } where actions tell the bridge
 // to send an alert email or create a calendar entry (the bridge runs inside the Google account).
 
+import { cleanStepstoneLinks, isStepstone } from "../_shared/inbox/stepstone.ts";
 import { classify, type Category } from "../_shared/inbox/classify.ts";
 import { berlinToUtc, extractFields, icsStart, interviewTime, unforward } from "../_shared/inbox/extract.ts";
 import { matchApplication, type OpenApp } from "../_shared/inbox/match.ts";
@@ -109,7 +110,9 @@ async function handle(req: Request): Promise<Response> {
   const headerless = !fwd && FORWARD_PREFIX.test(m.subject ?? "");
   const from = parseFrom(fwd?.from ?? m.from ?? "");
   const subject = (fwd?.subject ?? (m.subject ?? "").replace(FORWARD_PREFIX, "")).slice(0, 500);
-  const body = (fwd?.body ?? m.body_text ?? "").slice(0, 20000);
+  // StepStone links are login links: replaced by plain job addresses before anything is stored.
+  const rawBody = fwd?.body ?? m.body_text ?? "";
+  const body = (isStepstone(from.domain) ? await cleanStepstoneLinks(rawBody) : rawBody).slice(0, 20000);
   // Booking tools put the date in the HTML part and the calendar invite, not the plain text (2026-10-13,
   // Microsoft Bookings): the bridge sends both, used only for classification fallback and the date.
   const html = (m.body_html_text ?? "").slice(0, 20000);

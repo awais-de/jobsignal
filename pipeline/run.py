@@ -43,6 +43,7 @@ from pipeline.normalize import dedupe_hash, normalize_company
 from pipeline.sources.ats import ATS
 from pipeline.extract.page import STAGE as PAGE_STAGE, make_page_extractor
 from pipeline.sources.arbeitnow import ArbeitnowSource
+from pipeline.sources.alerts import StepstoneAlerts
 from pipeline.sources.ba import BundesagenturSource
 from pipeline.sources.careers import CareersSource
 
@@ -166,6 +167,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         known_ids=(lambda ids: db.known_ids("careers", ids)) if db else (lambda ids: set()),
         page_extractor=make_page_extractor(page_router, llm_cfg["stages"][PAGE_STAGE]),
     )
+    # Job-alert emails (spec 7.1 tier 5): StepStone's job agent, parsed from the stored emails.
+    alerts = StepstoneAlerts(db, now - timedelta(days=14)) if db and sources_cfg.get("alerts", {}).get("stepstone", True) else None
+    if alerts:
+        fetchers.append((alerts.name, alerts.name, alerts.fetch))
     for i, company in enumerate(watchlist, 1):
         # Company names are private: the public log only says 'careers#N'.
         fetchers.append((f"careers:{company['name']}", f"careers#{i}", lambda c=company: careers.fetch_company(c)))
@@ -266,6 +271,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         ids = db.insert_postings(new)
         db.touch(known_ids)
         db.record_reposts(repost_ids)
+        if alerts:
+            _optional("alerts parsed", alerts.mark_parsed)
         # Cross-source merging (spec 7.3.2): retire weaker copies only for rows that passed.
         db.supersede([sid for c in passed for sid in c.supersedes])
         for sid, text in merge.enrich:

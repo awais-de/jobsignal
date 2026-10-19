@@ -603,6 +603,20 @@ textarea.person-notes {
 .cv-contacts .inline-input { font: inherit; font-size: 12px; color: var(--text); background: transparent; border: none; max-width: 100%; }
 .notice-inline { color: var(--danger); }
 
+/* Ghost check */
+.badge.ghost-verify { background: #fff4d6; color: #7d4e00; }
+.badge.ghost-skip { background: #ffe1e0; color: #a40e26; }
+@media (prefers-color-scheme: dark) {
+  .badge.ghost-verify { background: #3b2a06; color: #f2cc60; }
+  .badge.ghost-skip { background: #4a1418; color: #ff9b9b; }
+}
+.ghost-check { margin-bottom: 10px; }
+.ghost-signals { list-style: none; padding: 0; margin: 4px 0; font-size: 13px; }
+.ghost-signals li { padding: 2px 0; }
+.ghost-signals .pts { display: inline-block; min-width: 30px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ghost-signals li.up .pts { color: var(--danger); }
+.ghost-signals li.down .pts { color: var(--apply, #1a7f37); }
+
 /* CV generator: ticks | one text */
 .cv-slots.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cv-split { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 14px; margin-top: 10px; align-items: start; }

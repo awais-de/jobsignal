@@ -26,6 +26,7 @@ import httpx
 
 from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
+from pipeline import ghost
 from pipeline.enrich import Enricher
 from pipeline.rank import keyword_overlap, score
 from pipeline.skills_db import skills_from_rows
@@ -79,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
         now = datetime.now(timezone.utc)
         log.info("refiltered: %d, reranked: %d", _refilter(db, profile, sources_cfg, now),
                  _rerank(db, enricher, profile, now))
+        ghosts = _optional("ghost", lambda: _ghost(db, sources_cfg, now))
+        if isinstance(ghosts, dict):
+            log.info("ghost buckets: %s", dict(Counter(b for b, _ in ghosts.values())))
         return 0
     if args.backlog_only:
         return backlog_only(profile, write=not args.dry_run)
@@ -281,6 +285,13 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             stats["discovery"] = _optional("discovery", lambda: _discover(db, candidates, disc_cfg, now))
         stats["refiltered"] = _optional("refilter", lambda: _refilter(db, profile, sources_cfg, now))
         stats["reranked"] = _rerank(db, enricher, profile, now)
+        # Ghost score (spec 7.8): every passed job still in view, recomputed daily (age grows).
+        ghosts = _optional("ghost", lambda: _ghost(db, sources_cfg, now))
+        if isinstance(ghosts, dict):
+            stats["ghost"] = dict(Counter(b for b, _ in ghosts.values()))
+            for c, sid in zip(surface, surface_ids):
+                if sid in ghosts:
+                    c.enrichment["ghost_bucket"], c.enrichment["ghost_reasons"] = ghosts[sid]
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
@@ -431,6 +442,22 @@ def _rerank(db: Database, enricher: Enricher, profile: dict[str, Any], now: date
         db.update_posting(r["id"], {"fit_score": fit, "rank_score": rank, "rank_details": details})
         changed += 1
     return changed
+
+
+def _ghost(db: Database, sources_cfg: dict[str, Any], now: datetime) -> dict[str, tuple[str, list[str]]]:
+    """Scores and stores the ghost bucket of passed jobs seen in the last 45 days; returns {id: (bucket, reasons)}."""
+    weights = load_config("scoring.yaml").get("ghost") or {}
+    agencies = [a.lower() for a in (sources_cfg.get("discovery") or {}).get("agencies", [])]
+    targets = db.ghost_targets(now - timedelta(days=45))
+    ctx = db.ghost_context([t["id"] for t in targets])
+    out: dict[str, tuple[str, list[str]]] = {}
+    rows = []
+    for t in targets:
+        total, bucket, signals = ghost.score(t, ctx.get(t["id"], {}), weights, agencies, now.date())
+        rows.append({"id": t["id"], "ghost_score": total, "ghost_bucket": bucket, "ghost_signals": signals})
+        out[t["id"]] = (bucket, ghost.reasons(signals))
+    db.set_ghost_scores(rows)
+    return out
 
 
 def _optional(step: str, fn):

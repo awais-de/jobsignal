@@ -5,4 +5,27 @@ preferred_skill_bonus: 2        # per preferred skill (profile.preferences.skill
 preferred_skill_bonus_cap: 10
 remote_bonus: 5                 # remote or hybrid, when profile.preferences.remote_bonus is on
 preference_bonus_cap: 15
-# Phase 7 adds: w_ghost (0.20), effort_bonus (low 5 / medium 2 / high 0)
+# Phase 7 adds: w_ghost (0.20), effort_bonus (low 5 / medium 2 / high 0). w_ghost isn't applied yet:
+# the ghost score is shown, not used to rank or hide (owner decision 2026-10-19).
+
+# Ghost-job score (spec 7.8): points per signal, clamped to 0-100. All STARTING VALUEs; calibrate
+# against application outcomes once there are ~40-50 (spec 7.12).
+ghost:
+  age_31_60: 15            # open 31-60 days (first sighting of the role, or BA's first publication)
+  age_over_60: 30
+  repost: 20               # came back after disappearing (new id, republished or relisted)
+  same_text: 10            # the identical description posted again 14+ days later
+  agency: 15
+  evergreen: 20            # "we're always looking", talent pool
+  vague: 10                # no named team, project or manager
+  named_contact: -10
+  start_date: -5
+  reference: -5
+  own_site_fresh: -15      # on the employer's own career page, first seen within 7 days
+  clones: 10               # the same role in clone_cities or more cities at once
+  clone_cities: 3
+  company_reposts: 10      # the company re-listed company_reposting_roles or more roles in 120 days
+  company_reposting_roles: 3
+  company_silent: 10       # an application there unanswered for 30+ days
+  verify_from: 30          # buckets: apply < 30 <= verify < 60 <= skip ("likely ghost")
+  skip_from: 60

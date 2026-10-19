@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FilterBar, { applyFilters, EMPTY, loadFilters, saveFilters, type Filters } from "./Filters";
-import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
+import { GHOST_LABEL, ghostReasons, POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 type Tab = "new" | "applied" | "skipped" | "all" | "explore";
 // Applied jobs live in the Applications view; the timeline still shows them with a badge.
@@ -252,6 +252,11 @@ function Card({ p, tab, onChange, onGone, onError, account, family }: {
       <div className="tags">
         <span className={`source source-${p.source}`}>{sourceLabel(p.source)}</span>
         {p.poster_type === "agency" && <span className="badge">agency</span>}
+        {(p.ghost_bucket === "verify" || p.ghost_bucket === "skip") && (
+          <span className={`badge ghost-${p.ghost_bucket}`} title={ghostReasons(p).join("\n")}>
+            ⚠ {GHOST_LABEL[p.ghost_bucket]}
+          </span>
+        )}
         {family && <span className="badge lane-explore" title="Explore family">{family}</span>}
         {p.triage_status !== "new" && (
           <span className="badge">

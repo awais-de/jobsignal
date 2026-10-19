@@ -6,7 +6,7 @@ import JobSkills from "./JobSkills";
 import OutreachPanel from "./Outreach";
 import { buildPrepPrompt } from "./prep";
 import { RESUME_COLUMNS, type Resume } from "./Resumes";
-import { POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
+import { GHOST_LABEL, POSTING_COLUMNS, SKIP_REASONS, sourceLabel, supabase, type Posting } from "./supabase";
 
 // One job, opened as its own tab: the notepad next to everything known about the job.
 
@@ -218,6 +218,7 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
 
         <aside className="job-side">
           <OutreachPanel job={job} applicationId={app?.id ?? null} sender={sender} />
+          {job.ghost_bucket && <GhostCheck job={job} />}
           {(reqs.length > 0 || job.german_level || job.required_years != null) && (
             <>
               <h3>Requirements</h3>
@@ -241,6 +242,31 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
         </aside>
       </div>
       {toast && active && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+/** Ghost check (spec 7.8): the bucket, the score and every signal with its points. Rules only. */
+function GhostCheck({ job }: { job: Posting }) {
+  const signals = [...(job.ghost_signals ?? [])].sort((a, b) => b.points - a.points);
+  const bucket = job.ghost_bucket!;
+  return (
+    <div className={`ghost-check ghost-${bucket}`}>
+      <h3>Ghost check</h3>
+      <div className="small-text">
+        <strong>{bucket === "apply" ? "Looks real" : GHOST_LABEL[bucket].replace(/^./, (c) => c.toUpperCase())}</strong>
+        <span className="muted"> · score {job.ghost_score ?? 0}/100</span>
+      </div>
+      {signals.length > 0 ? (
+        <ul className="ghost-signals">
+          {signals.map((s) => (
+            <li key={s.key} className={s.points > 0 ? "up" : "down"}>
+              <span className="pts">{s.points > 0 ? `+${s.points}` : s.points}</span> {s.detail}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="muted small-text">No warning signs found.</p>}
+      {bucket !== "apply" && <p className="muted small-text">Worth a quick check before applying: is it on the employer's own site, and can you message someone there?</p>}
     </div>
   );
 }

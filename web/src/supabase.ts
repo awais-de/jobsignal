@@ -61,9 +61,20 @@ export type Posting = {
   notes: string | null;   // the job's notepad (labelled sections, see notes.ts)
   title_family: string | null;
   lane: "core" | "explore" | null;   // null: from before title families (counts as core)
+  // Ghost check (spec 7.8): rules only; shown, not used to hide or rank yet.
+  ghost_score: number | null;
+  ghost_bucket: "apply" | "verify" | "skip" | null;
+  ghost_signals: GhostSignal[] | null;
 };
+export type GhostSignal = { key: string; points: number; detail: string };
+
+/** The signals that raise the ghost score, biggest first. */
+export const ghostReasons = (p: Pick<Posting, "ghost_signals">) =>
+  (p.ghost_signals ?? []).filter((s) => s.points > 0).sort((a, b) => b.points - a.points).map((s) => s.detail);
+export const GHOST_LABEL: Record<string, string> = { verify: "verify first", skip: "likely ghost" };
 
 export const POSTING_COLUMNS =
   "id,source,title,company_name,city,location_raw,remote_policy,posted_date,salary_text,poster_type," +
   "apply_url,source_url,surfaced_on,first_seen_at,triage_status,skip_reason,manually_edited," +
-  "extraction_status,rank_score,rank_details,german_level,required_years,seniority,must_have_skills,nice_to_have_skills,notes,title_family,lane";
+  "extraction_status,rank_score,rank_details,german_level,required_years,seniority,must_have_skills,nice_to_have_skills,notes,title_family,lane," +
+  "ghost_score,ghost_bucket,ghost_signals";

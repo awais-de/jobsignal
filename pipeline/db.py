@@ -144,6 +144,33 @@ class Database:
         for chunk in _chunks(ids, 500):
             self._req("POST", "/rpc/touch_postings", json={"ids": chunk})
 
+    # -- ghost score (spec 7.8) --------------------------------------------------------
+    GHOST_COLUMNS = ("id,source,company_name,posted_date,repost_count,reappear_count,poster_type,evergreen_language,"
+                     "specificity_score,named_contact,start_date_text,reference_number,extraction_status")
+
+    def ghost_targets(self, seen_since: datetime) -> list[dict[str, Any]]:
+        """Passed postings still in view: first or last seen since `seen_since`."""
+        out: list[dict[str, Any]] = []
+        while True:
+            rows = self._req("GET", "/job_postings", params={
+                "select": self.GHOST_COLUMNS, "filter_status": "eq.passed", "deleted_at": "is.null",
+                "or": f"(first_seen_at.gte.{seen_since.isoformat()},last_seen_at.gte.{seen_since.isoformat()})",
+                "order": "id", "limit": 1000, "offset": len(out)})
+            out += rows
+            if len(rows) < 1000:
+                return out
+
+    def ghost_context(self, ids: list[str]) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for chunk in _chunks(ids, 300):
+            for r in self._req("POST", "/rpc/ghost_context", json={"ids": chunk}) or []:
+                out[r["id"]] = r
+        return out
+
+    def set_ghost_scores(self, rows: list[dict[str, Any]]) -> None:
+        for chunk in _chunks(rows, 300):
+            self._req("POST", "/rpc/set_ghost_scores", json={"rows": chunk})
+
     def record_reposts(self, ids: list[str]) -> None:
         for chunk in _chunks(ids, 500):
             self._req("POST", "/rpc/record_reposts", json={"ids": chunk})

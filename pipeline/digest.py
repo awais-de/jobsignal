@@ -156,6 +156,10 @@ def _why(ex: dict) -> list[str]:
         lines.append(" · ".join(reqs))
     if ex.get("extraction_status") in ("failed", "pending"):
         lines.append("(not analysed yet)")
+    # Ghost check (spec 7.10): the bucket with its reasons when it isn't a plain "apply".
+    if ex.get("ghost_bucket") in ("verify", "skip"):
+        label = "Likely ghost" if ex["ghost_bucket"] == "skip" else "Verify first"
+        lines.append(f"⚠ {label}: {'; '.join((ex.get('ghost_reasons') or [])[:3])}")
     return lines
 
 

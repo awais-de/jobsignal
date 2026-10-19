@@ -175,7 +175,8 @@ export default function JobPage({ id, active, onLabel, onDirty }: {
       </div>
       {error && <p className="notice">{error}</p>}
 
-      <div className="job-body">
+      {/* The CV generator needs the width (ticks | text): the side panel moves below while it's open. */}
+      <div className={`job-body${pane === "cv" ? " wide" : ""}`}>
         <div className="job-main">
           <div className="tabs pane-tabs">
             <button className={pane === "notes" ? "active" : ""} onClick={() => setPane("notes")}>Notes{dirty ? " ●" : ""}</button>

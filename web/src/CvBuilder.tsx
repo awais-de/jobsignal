@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { adLanguage } from "./contactfinder";
 import {
-  appendPart, bulletText, markToPlain, detectFormat, entrySources, indexMaster, initialDraft, newEntry, plainText, reconcile, removePart, renderTex,
-  type CvDraft, type CvFormat, type DEntry, type DSection, type Master, type SkillGroup,
+  detectFormat, indexMaster, initialDraft, markToPlain, plainText, renderTex,
+  type CvDraft, type CvFormat, type Master, type SkillGroup,
 } from "./cvformat";
-import { coursesPrefix, itemLabel, joinText, rowOf, sectionSpec, tr, type Item, type Lang } from "./cvschema";
+import { type Item, type Lang } from "./cvschema";
+import { applyTick, buildPlan, parseCvText, tickIndex, type PlanSection, type TextDraft, type Tick } from "./cvtext";
 import { cvFileName } from "./cvtex";
 import { BASE_COLUMNS, loadItems, type BaseCv } from "./MasterCv";
 import { useSkills } from "./skills-data";
 import { supabase } from "./supabase";
 
-// CV generator on a job's page (owner decision 2026-10-14): pick a format, then tick sections, records and
-// bullets from the master CV. Ticking copies the text into an editable box (unticking removes it again);
-// every box is free text for this CV. The draft is saved with the job and never written back to the master.
-// Then compile to PDF, download it or save it to Drive as a registered resume version.
+// CV generator on a job's page (owner decisions 2026-10-14 and 2026-10-19): pick a format, tick records and
+// bullets from the master CV on the left; their text goes into one big text box on the right, at its place
+// (unticking takes it out again while unchanged). The box is edited freely and, on compile, split back into
+// sections, entries, bullets and rows by its markers (cvtext.ts). The draft is saved with the job and never
+// written back to the master. Then compile to PDF, download it or save it to Drive as a resume version.
 
 type Build = {
   id: string; status: "queued" | "compiling" | "compiled" | "failed" | "saved"; pages: number | null;
@@ -29,7 +31,7 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   const [bases, setBases] = useState<BaseCv[] | null>(null);
   const [baseId, setBaseId] = useState("");
   const [items, setItems] = useState<Item[] | null>(null);
-  const [draft, setDraft] = useState<CvDraft | null>(null);
+  const [draft, setDraft] = useState<TextDraft | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty">("saved");
   const [builds, setBuilds] = useState<Build[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +84,10 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
     }).sort((a, b) => a.order - b.order || a.cat.localeCompare(b.cat));
   }, [sk.catalog, sk.categories, sk.isMine, sk.ratingOf, asked, lang]);
 
-  // The draft: saved per job and format; the first one is made from the format and the master.
+  const newDraft = useCallback((): TextDraft | null =>
+    (f && m ? { v: 2, header: initialDraft(f, m, []).header, text: "", ticked: [] } : null), [f, m]);
+
+  // The draft: saved per job and format; a new one starts with the header and an empty text.
   const loadedFor = useRef("");
   useEffect(() => {
     if (!f || !m || !base || !sk.catalog) return;
@@ -91,11 +96,11 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
     loadedFor.current = key;
     supabase.from("cv_drafts").select("data").eq("job_posting_id", job.id).eq("base_cv_id", base.id).maybeSingle()
       .then(({ data }) => {
-        const saved = (data as { data: CvDraft } | null)?.data;
-        setDraft(saved?.v === 1 ? reconcile(saved, f, m) : initialDraft(f, m, skillGroups));
+        const saved = (data as { data: TextDraft } | null)?.data;
+        setDraft(saved?.v === 2 ? saved : newDraft());
         setSaveState("saved");
       });
-  }, [f, m, base, job.id, sk.catalog, skillGroups]);
+  }, [f, m, base, job.id, sk.catalog, newDraft]);
 
   // Autosave, a moment after the last change.
   useEffect(() => {
@@ -110,10 +115,32 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
     return () => clearTimeout(t);
   }, [draft, saveState, base, job.id]);
 
-  const change = useCallback((fn: (d: CvDraft) => void) => {
+  const change = useCallback((fn: (d: TextDraft) => void) => {
     setDraft((d) => { if (!d) return d; const n = structuredClone(d); fn(n); return n; });
     setSaveState("dirty");
   }, []);
+
+  const plan = useMemo(() => (f && m ? buildPlan(f, m, skillGroups) : []), [f, m, skillGroups]);
+  const ticks = useMemo(() => tickIndex(plan), [plan]);
+  function tick(t: Tick, on: boolean) {
+    if (!draft) return;
+    const r = applyTick(draft, t, on, plan);
+    change((d) => { d.text = r.text; d.ticked = r.ticked; });
+    if (r.note) flash(r.note);
+  }
+  /** The job's skills and your strong ones (6+), ticked in one go. */
+  function tickSuggested() {
+    if (!draft) return;
+    let d = draft;
+    for (const g of skillGroups) for (const it of g.items) {
+      const t = ticks.get(`k:${it.id}`);
+      if (it.on && t && !d.ticked.includes(t.key)) { const r = applyTick(d, t, true, plan); d = { ...d, text: r.text, ticked: r.ticked }; }
+    }
+    change((x) => { x.text = d.text; x.ticked = d.ticked; });
+  }
+
+  const parsed = useMemo(() => (f && draft ? parseCvText(draft.text, f, lang) : null), [f, draft, lang]);
+  const cvDraft = useMemo<CvDraft | null>(() => (draft && parsed ? { v: 1, header: draft.header, sections: parsed.sections } : null), [draft, parsed]);
 
   const loadBuilds = useCallback(async () => {
     const { data } = await supabase.from("cv_builds").select(BUILD_COLUMNS).eq("job_posting_id", job.id)
@@ -128,8 +155,8 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
     return () => clearInterval(t);
   }, [pending, active, loadBuilds]);
 
-  const tex = useMemo(() => (f && draft ? renderTex(f, draft) : ""), [f, draft]);
-  const plain = useMemo(() => (draft ? plainText(draft) : ""), [draft]);
+  const tex = useMemo(() => (f && cvDraft ? renderTex(f, cvDraft) : ""), [f, cvDraft]);
+  const plain = useMemo(() => (cvDraft ? plainText(cvDraft) : ""), [cvDraft]);
   const fileName = cvFileName(lang, draft?.header.name ?? null, job.company_name);
   const keywords = useMemo(() => {
     const t = plain.toLowerCase();
@@ -190,8 +217,8 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
         </select>
         <span className="muted small">{saveState === "saved" ? "Draft saved" : saveState === "saving" ? "Saving…" : "Unsaved"}</span>
         <button className="link" onClick={() => {
-          if (!f || !m || !window.confirm("Start over from the master CV? Your ticks and edits for this job are cleared.")) return;
-          setDraft(initialDraft(f, m, skillGroups)); setSaveState("dirty");
+          if (!window.confirm("Start over? The text and ticks for this job are cleared.")) return;
+          setDraft(newDraft()); setSaveState("dirty");
         }}>Reset</button>
       </div>
       {error && <p className="notice">{error} <button className="link" onClick={() => setError(null)}>×</button></p>}
@@ -210,17 +237,33 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
         </div>
       )}
 
-      {draft && f && m && (
+      {draft && f && m && parsed && (
         <>
           <HeaderBox draft={draft} change={change} />
-          {draft.sections.map((s, i) => (
-            <SectionBox key={s.key} s={s} i={i} draft={draft} f={f} m={m} lang={lang} skills={skillGroups} change={change} />
-          ))}
+          <div className="cv-split">
+            <Picks plan={plan} m={m} ticked={draft.ticked} onTick={tick} onSuggested={tickSuggested} />
+            <div className="cv-editor">
+              <textarea className="cv-text" value={draft.text} spellCheck
+                        placeholder={"Tick on the left, or write here:\n\n# Profil\nText …\n\n# Berufserfahrung\n## Company | 11/2023 – 06/2024\nRole | City\n- A bullet"}
+                        onChange={(e) => change((d) => { d.text = e.target.value; })} />
+              <div className="cv-outline small">
+                <span className="muted">Will be written as:</span>{" "}
+                {parsed.outline.length ? parsed.outline.join(" · ") : <span className="muted">nothing yet</span>}
+                {parsed.problems.map((p, i) => <div key={i} className="notice-inline">{p}</div>)}
+              </div>
+              <details className="cv-help small">
+                <summary>Text format</summary>
+                <code># Section</code> a section · <code>## Left | Right</code> an entry heading, the next line <code>Left | Right</code> its second line ·{" "}
+                <code>&gt; text</code> its grey context line · <code>- text</code> a bullet · <code>Label: text</code> a row ·{" "}
+                <code>[text](https://…)</code> a link · <code>**text**</code> bold. Empty sections are left out.
+              </details>
+            </div>
+          </div>
         </>
       )}
 
       <div className="prompt-row">
-        <button className="primary small" disabled={!draft || busy} onClick={compile} title="Compiles in GitHub Actions, about a minute">Compile PDF</button>
+        <button className="primary small" disabled={!draft || busy || !draft.text.trim()} onClick={compile} title="Compiles in GitHub Actions, about a minute">Compile PDF</button>
         <button className="small" disabled={!draft} onClick={copyTex}>Copy LaTeX</button>
         <button className="small" disabled={!draft} onClick={downloadTex}>Download .tex</button>
         <span className="muted small">File: {fileName}</span>
@@ -251,22 +294,15 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   );
 }
 
-type Change = (fn: (d: CvDraft) => void) => void;
-const sec = (d: CvDraft, key: string) => d.sections.find((s) => s.key === key)!;
-function moveIn<T>(list: T[], i: number, dir: -1 | 1) {
-  const j = i + dir;
-  if (j < 0 || j >= list.length) return;
-  [list[i], list[j]] = [list[j], list[i]];
-}
+type Change = (fn: (d: TextDraft) => void) => void;
 
-function HeaderBox({ draft, change }: { draft: CvDraft; change: Change }) {
+function HeaderBox({ draft, change }: { draft: TextDraft; change: Change }) {
   const h = draft.header;
   return (
     <div className="cv-section">
-      <h3>Header</h3>
-      <div className="cv-slots">
+      <div className="cv-slots three">
         <label className="cv-field"><span>Name</span><input value={h.name} onChange={(e) => change((d) => { d.header.name = e.target.value; })} /></label>
-        <label className="cv-field"><span>Headline</span><input value={h.headline} onChange={(e) => change((d) => { d.header.headline = e.target.value; })} /></label>
+        <label className="cv-field"><span>Headline</span><input value={h.headline} placeholder="optional" onChange={(e) => change((d) => { d.header.headline = e.target.value; })} /></label>
         <label className="cv-field"><span>Location</span><input value={h.location} onChange={(e) => change((d) => { d.header.location = e.target.value; })} /></label>
       </div>
       <div className="cv-contacts">
@@ -281,268 +317,61 @@ function HeaderBox({ draft, change }: { draft: CvDraft; change: Change }) {
   );
 }
 
-function SectionBox({ s, i, draft, f, m, lang, skills, change }: {
-  s: DSection; i: number; draft: CvDraft; f: CvFormat; m: Master; lang: Lang; skills: SkillGroup[]; change: Change;
+/** The left pane: sections, their records and bullets to tick. */
+function Picks({ plan, m, ticked, onTick, onSuggested }: {
+  plan: PlanSection[]; m: Master; ticked: string[]; onTick: (t: Tick, on: boolean) => void; onSuggested: () => void;
 }) {
-  const spec = sectionSpec(s.key);
-  if (!spec) return null;
-  const sources = s.key === "skills" ? [] : m.roots(s.key);
-  // Rows sections that are on: where a joinable section can be written as one row.
-  const targets = draft.sections.filter((x) => x.style === "rows" && x.on && x.key !== s.key && !x.into);
-  const upd = (fn: (x: DSection, d: CvDraft) => void) => change((d) => fn(sec(d, s.key), d));
-
-  function place(into: string | null) {
-    change((d) => {
-      const x = sec(d, s.key);
-      if (x.into) { const t = sec(d, x.into); t.rows = t.rows.filter((r) => r.src !== `section:${s.key}`); }
-      x.into = into;
-      if (into) {
-        const t = sec(d, into);
-        t.rows.push({ src: `section:${s.key}`, label: x.title, text: x.picked.map((id) => m.byId.get(id)).filter(Boolean).map((it) => joinText(it!, lang)).join(", ") });
-      }
-    });
-  }
-  /** Joined mode: ticking appends the record to the target row's text; unticking takes it out. */
-  function pickJoined(it: Item, on: boolean) {
-    change((d) => {
-      const x = sec(d, s.key);
-      const t = sec(d, x.into!);
-      let row = t.rows.find((r) => r.src === `section:${s.key}`);
-      if (!row) { row = { src: `section:${s.key}`, label: x.title, text: "" }; t.rows.push(row); }
-      const part = joinText(it, lang);
-      x.picked = on ? [...x.picked, it.id] : x.picked.filter((p) => p !== it.id);
-      row.text = on ? appendPart(row.text, part) : removePart(row.text, part);
-    });
-  }
-
+  const on = (key: string) => ticked.includes(key);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   return (
-    <div className={`cv-section${s.on ? "" : " off"}`}>
-      <div className="cv-section-head">
-        <input type="checkbox" checked={s.on} aria-label={`Include ${s.title}`} onChange={(e) => upd((x) => { x.on = e.target.checked; })} />
-        <input className="cv-title-input" value={s.title} aria-label="Section title" onChange={(e) => upd((x, d) => {
-          x.title = e.target.value;
-          if (x.into) { const r = sec(d, x.into).rows.find((r) => r.src === `section:${s.key}`); if (r) r.label = e.target.value; }
-        })} />
-        <span className="muted small">{spec.title.en !== s.title ? spec.title.en : ""}</span>
-        <span className="mcv-tools">
-          {spec.joinable && s.on && (
-            <select value={s.into ?? ""} onChange={(e) => place(e.target.value || null)} aria-label="Placement">
-              <option value="">Own section</option>
-              {targets.map((t) => <option key={t.key} value={t.key}>Row in {t.title}</option>)}
-            </select>
-          )}
-          <button className="link" aria-label="Move up" onClick={() => change((d) => moveIn(d.sections, i, -1))}>↑</button>
-          <button className="link" aria-label="Move down" onClick={() => change((d) => moveIn(d.sections, i, 1))}>↓</button>
-        </span>
-      </div>
-      {s.on && s.into && (
-        <div className="cv-body">
-          <p className="muted small">Written as the row “{s.title}” in {sec(draft, s.into).title}: ticking adds to that row's text (edit it there).</p>
-          <Ticks items={sources} on={(it) => s.picked.includes(it.id)} label={(it) => joinText(it, lang) || itemLabel(it)} onTick={pickJoined} />
-        </div>
-      )}
-      {s.on && !s.into && (
-        <div className="cv-body">
-          {s.style === "text" && (
-            <>
-              {sources.length > 0 && (
-                <div className="row small">
-                  <span className="muted">Start from:</span>
-                  {sources.map((it) => (
-                    <button key={it.id} className="chip" onClick={() => {
-                      const t = tr(it.data.text, lang);
-                      if (s.text.trim() && !window.confirm("Replace the current text with this version?")) return;
-                      upd((x) => { x.text = t; });
-                    }}>{(it.data.label as string) || "version"}</button>
-                  ))}
-                </div>
-              )}
-              <textarea rows={4} value={s.text} placeholder={s.key === "summary" ? "Written for this job" : ""} onChange={(e) => upd((x) => { x.text = e.target.value; })} />
-            </>
-          )}
-          {s.style === "bullets" && (
-            <>
-              {s.key === "highlights" && <p className="muted small">2–3 bullets answering this posting's top requirements with your evidence. Empty: left out.</p>}
-              <Ticks items={sources} on={(it) => s.bullets.some((b) => b.src === it.id)}
-                     label={(it) => bulletText(it, lang) || itemLabel(it)}
-                     onTick={(it, on) => upd((x) => { x.bullets = on ? [...x.bullets, { src: it.id, text: bulletText(it, lang) }] : x.bullets.filter((b) => b.src !== it.id); })} />
-              <BulletList bullets={s.bullets} set={(fn) => upd((x) => fn(x.bullets))} />
-            </>
-          )}
-          {s.style === "entries" && (
-            <>
-              {s.entries.map((e, k) => (
-                <EntryBox key={e.src ?? `custom-${k}`} e={e} k={k} f={f} m={m} lang={lang} slots={spec.slots ?? []} upd={upd} />
-              ))}
-              <button className="link small" onClick={() => upd((x) => { x.entries.push({ src: null, on: true, slots: ["", "", "", ""], context: "", bullets: [], picked: [] }); })}>
-                + An entry for this CV only
+    <div className="cv-picks">
+      {plan.map((s) => {
+        const count = s.groups.reduce((n, g) => n + g.ticks.length, 0);
+        const used = s.groups.reduce((n, g) => n + g.ticks.filter((t) => on(t.key)).length, 0);
+        const isOpen = open[s.key] ?? used > 0;
+        return (
+          <div key={s.key} className="cv-pick-section">
+            <div className="cv-pick-head">
+              <input type="checkbox" checked={on(`sec:${s.key}`) || used > 0} aria-label={`Section ${s.title}`}
+                     onChange={(e) => onTick({ kind: "section", key: `sec:${s.key}`, section: s.key }, e.target.checked)} />
+              <button className="link cv-pick-title" onClick={() => setOpen((o) => ({ ...o, [s.key]: !isOpen }))}>
+                {isOpen ? "▾" : "▸"} {s.title} <span className="muted small">{count ? `${used}/${count}` : ""}</span>
               </button>
-            </>
-          )}
-          {s.style === "rows" && <RowsBox s={s} lang={lang} skills={skills} sources={sources} draft={draft} upd={upd} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Ticks({ items, on, label, onTick }: { items: Item[]; on: (it: Item) => boolean; label: (it: Item) => string; onTick: (it: Item, on: boolean) => void }) {
-  if (!items.length) return null;
-  return (
-    <div className="cv-ticks">
-      {items.map((it) => (
-        <label key={it.id} className={`cv-tick${on(it) ? " on" : ""}`}>
-          <input type="checkbox" checked={on(it)} onChange={(e) => onTick(it, e.target.checked)} />
-          <span>{markToPlain(label(it))}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function BulletList({ bullets, set }: { bullets: { src?: string; text: string }[]; set: (fn: (b: { src?: string; text: string }[]) => void) => void }) {
-  return (
-    <div className="cv-bullets">
-      {bullets.map((b, i) => (
-        <div key={i} className="cv-bullet">
-          <span className="cv-dot">•</span>
-          <textarea rows={2} value={b.text} onChange={(e) => set((l) => { l[i].text = e.target.value; })} />
-          <span className="cv-bullet-tools">
-            <button className="link" aria-label="Move up" onClick={() => set((l) => moveIn(l, i, -1))}>↑</button>
-            <button className="link" aria-label="Move down" onClick={() => set((l) => moveIn(l, i, 1))}>↓</button>
-            <button className="link danger" aria-label="Remove" onClick={() => set((l) => { l.splice(i, 1); })}>×</button>
-          </span>
-        </div>
-      ))}
-      <button className="link small" onClick={() => set((l) => { l.push({ text: "" }); })}>+ Bullet</button>
-    </div>
-  );
-}
-
-function EntryBox({ e, k, f, m, lang, slots, upd }: {
-  e: DEntry; k: number; f: CvFormat; m: Master; lang: Lang; slots: string[];
-  upd: (fn: (x: DSection, d: CvDraft) => void) => void;
-}) {
-  const it = e.src ? m.byId.get(e.src) : undefined;
-  const parent = it?.parent_id ? m.byId.get(it.parent_id) : undefined;
-  const name = it ? itemLabel(it, parent) : (e.slots.filter(Boolean).join(" · ") || "Entry for this CV");
-  const sources = entrySources(e, m);
-  const setE = (fn: (x: DEntry) => void) => upd((x) => fn(x.entries[k]));
-
-  function tick(src: Item, on: boolean) {
-    setE((x) => {
-      if (src.kind === "course") {
-        // Courses go into one bullet: "Relevante Kurse: A, B".
-        const pre = coursesPrefix(lang);
-        let b = x.bullets.find((y) => y.src === "courses");
-        const name = bulletText(src, lang);
-        x.picked = on ? [...x.picked, src.id] : x.picked.filter((p) => p !== src.id);
-        if (on) {
-          if (!b) { b = { src: "courses", text: pre + name }; x.bullets.push(b); } else b.text = appendPart(b.text, name);
-        } else if (b) {
-          b.text = b.text.startsWith(pre) ? pre + removePart(b.text.slice(pre.length), name) : removePart(b.text, name);
-          if (b.text.trim() === pre.trim() || !b.text.trim()) x.bullets = x.bullets.filter((y) => y !== b);
-        }
-        return;
-      }
-      x.bullets = on ? [...x.bullets, { src: src.id, text: bulletText(src, lang) }] : x.bullets.filter((y) => y.src !== src.id);
-    });
-  }
-  const ticked = (src: Item) => (src.kind === "course" ? e.picked.includes(src.id) : e.bullets.some((b) => b.src === src.id));
-
-  return (
-    <div className={`cv-entry${e.on ? "" : " off"}`}>
-      <div className="cv-entry-head">
-        <label className="check">
-          <input type="checkbox" checked={e.on} onChange={(x) => setE((y) => { y.on = x.target.checked; })} />
-          <strong>{name}</strong>
-        </label>
-        <span className="mcv-tools">
-          {it && e.on && (
-            <button className="link small" title="Fill the heading again from the master CV" onClick={() => {
-              const fresh = newEntry(it, m, f, true);
-              setE((y) => { y.slots = fresh.slots; y.context = fresh.context; });
-            }}>↺ heading</button>
-          )}
-          <button className="link" aria-label="Move up" onClick={() => upd((x) => moveIn(x.entries, k, -1))}>↑</button>
-          <button className="link" aria-label="Move down" onClick={() => upd((x) => moveIn(x.entries, k, 1))}>↓</button>
-          {!it && <button className="link danger" aria-label="Remove" onClick={() => upd((x) => { x.entries.splice(k, 1); })}>×</button>}
-        </span>
-      </div>
-      {e.on && (
-        <>
-          <div className="cv-slots">
-            {[0, 1, 2, 3].map((n) => (
-              <label key={n} className="cv-field"><span>{slots[n] ?? `Field ${n + 1}`}</span>
-                <input value={e.slots[n] ?? ""} onChange={(x) => setE((y) => { y.slots[n] = x.target.value; })} /></label>
-            ))}
-            {f.styles.context && (
-              <label className="cv-field wide"><span>Context line</span>
-                <input value={e.context} placeholder="optional" onChange={(x) => setE((y) => { y.context = x.target.value; })} /></label>
+            </div>
+            {isOpen && (
+              <div className="cv-pick-body">
+                {s.key === "skills" && <button className="link small" onClick={onSuggested}>Tick the job's skills and your strong ones (6+)</button>}
+                {count === 0 && s.key !== "skills" && <p className="muted small">Nothing in the master CV: write it in the box.</p>}
+                {s.groups.map((g, gi) => (
+                  <div key={gi} className="cv-pick-group">
+                    {g.title && <div className="muted small">{g.title}{g.note ? ` (${g.note})` : ""}</div>}
+                    {g.ticks.map((t) => (
+                      <div key={t.key}>
+                        <label className={`cv-tick${on(t.key) ? " on" : ""}`}>
+                          <input type="checkbox" checked={on(t.key)} onChange={(e) => onTick(t, e.target.checked)} />
+                          <span className={t.kind === "entry" ? "strong" : ""}>{markToPlain(t.label)}</span>
+                        </label>
+                        {t.children && t.children.length > 0 && (on(t.key) || t.children.some((c) => on(c.key))) && (
+                          <div className="cv-pick-children">
+                            {t.children.map((c) => (
+                              <label key={c.key} className={`cv-tick${on(c.key) ? " on" : ""}`}>
+                                <input type="checkbox" checked={on(c.key)} onChange={(e) => onTick(c, e.target.checked)} />
+                                <span>{markToPlain(c.label)}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          <Ticks items={sources} on={ticked}
-                 label={(src) => `${src.kind === "achievement" ? "🏆 " : src.kind === "course" ? "Course: " : ""}${bulletText(src, lang) || itemLabel(src)}`}
-                 onTick={tick} />
-          <BulletList bullets={e.bullets} set={(fn) => setE((y) => fn(y.bullets))} />
-        </>
-      )}
+        );
+      })}
+      {m.items.length === 0 && <p className="muted small">The master CV is empty.</p>}
     </div>
   );
 }
 
-function RowsBox({ s, lang, skills, sources, draft, upd }: {
-  s: DSection; lang: Lang; skills: SkillGroup[]; sources: Item[]; draft: CvDraft;
-  upd: (fn: (x: DSection, d: CvDraft) => void) => void;
-}) {
-  return (
-    <>
-      {s.key !== "skills" && (
-        <Ticks items={sources} on={(it) => s.rows.some((r) => r.src === `item:${it.id}`)}
-               label={(it) => { const r = rowOf(it, lang); return [r.label, r.text].filter(Boolean).join(": ") || itemLabel(it); }}
-               onTick={(it, on) => upd((x) => { x.rows = on ? [...x.rows, { src: `item:${it.id}`, ...rowOf(it, lang) }] : x.rows.filter((r) => r.src !== `item:${it.id}`); })} />
-      )}
-      <div className="cv-rows">
-        {s.rows.map((r, i) => {
-          const placed = r.src.startsWith("section:") ? draft.sections.find((x) => x.key === r.src.slice(8)) : undefined;
-          if (placed && (!placed.on || placed.into !== s.key)) return null;
-          const group = r.src.startsWith("skills:") ? skills.find((g) => `skills:${g.cat}` === r.src) : undefined;
-          return (
-            <div key={`${r.src}-${i}`} className="cv-rowedit">
-              <div className="cv-rowedit-line">
-                <input className="cv-row-label" value={r.label} placeholder="Label" onChange={(e) => upd((x) => { x.rows[i].label = e.target.value; })} />
-                <textarea rows={2} value={r.text} onChange={(e) => upd((x) => { x.rows[i].text = e.target.value; })} />
-                <span className="cv-bullet-tools">
-                  <button className="link" aria-label="Move up" onClick={() => upd((x) => moveIn(x.rows, i, -1))}>↑</button>
-                  <button className="link" aria-label="Move down" onClick={() => upd((x) => moveIn(x.rows, i, 1))}>↓</button>
-                  {!placed && <button className="link danger" aria-label="Remove" onClick={() => upd((x) => { x.rows.splice(i, 1); })}>×</button>}
-                </span>
-              </div>
-              {placed && <span className="muted small">from {placed.title}: tick its records in that section</span>}
-              {group && (
-                <div className="skill-ticks">
-                  {group.items.map((it) => {
-                    const on = s.picked.includes(it.id);
-                    return (
-                      <label key={it.id} className={`tick${on ? " on" : ""}${it.asked ? " asked" : ""}`}>
-                        <input type="checkbox" checked={on} onChange={(e) => upd((x) => {
-                          x.picked = e.target.checked ? [...x.picked, it.id] : x.picked.filter((p) => p !== it.id);
-                          x.rows[i].text = e.target.checked ? appendPart(x.rows[i].text, it.name) : removePart(x.rows[i].text, it.name);
-                        })} />
-                        {it.name}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {s.key === "skills" && skills.filter((g) => !s.rows.some((r) => r.src === `skills:${g.cat}`)).map((g) => (
-        <button key={g.cat} className="link small" onClick={() => upd((x) => { x.rows.push({ src: `skills:${g.cat}`, label: g.label, text: "" }); })}>+ {g.label}</button>
-      ))}
-      <button className="link small" onClick={() => upd((x) => { x.rows.push({ src: `custom:${Date.now()}`, label: "", text: "" }); })}>+ Row</button>
-    </>
-  );
-}

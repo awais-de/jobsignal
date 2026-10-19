@@ -17,7 +17,7 @@ import {
 } from "./cvformat";
 import { coursesPrefix, joinText, rowOf, SECTIONS, sectionSpec, tr, type Item, type Lang, type Style } from "./cvschema";
 
-export type TextDraft = { v: 2; header: DHeader; text: string; ticked: string[] };
+export type TextDraft = { v: 2; header: DHeader; text: string; ticked: string[]; company?: string };   // company: ad-hoc CVs (file name)
 
 // -- what can be ticked ----------------------------------------------------------------------------
 export type Tick =

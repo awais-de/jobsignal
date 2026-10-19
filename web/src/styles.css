@@ -644,6 +644,15 @@ button.cv-pick-title { color: var(--text); font-weight: 600; font-size: 14px; pa
   .cv-builder textarea.cv-text { min-height: 60vh; }
 }
 
+/* CVs without a job (Me → CVs) */
+.cv-generator > .card { margin-bottom: 12px; max-width: 1000px; }
+.cv-generator form.row input { flex: 1 1 240px; min-width: 0; font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+ul.cv-list { list-style: none; padding: 0; margin: 10px 0 0; }
+ul.cv-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border); }
+ul.cv-list li.active .cv-list-name { font-weight: 700; }
+button.cv-list-name { color: var(--text); font-size: 14px; padding: 0; text-align: left; }
+.cv-company { max-width: 420px; }
+
 /* Master CV */
 .master-cv { max-width: 1000px; }
 .master-cv > .card { margin-bottom: 12px; }

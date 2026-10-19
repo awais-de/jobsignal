@@ -6,6 +6,7 @@ import Applications from "./Applications";
 import Feed from "./Feed";
 import Home from "./Home";
 import MasterCv from "./MasterCv";
+import CvGenerator from "./CvGenerator";
 import JobPage from "./JobPage";
 import Lab from "./Lab";
 import People from "./People";
@@ -34,14 +35,14 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "home" | "feed" | "lab" | "applications" | "responses" | "people" | "skills" | "mastercv" | "profile";
+type View = "home" | "feed" | "lab" | "applications" | "responses" | "people" | "skills" | "mastercv" | "cvs" | "profile";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
 // Old links keep working: #add is on Applications, #control on Home.
 const HASH_VIEWS: Record<string, View> = {
   "": "home", "#": "home", "#home": "home", "#control": "home", "#feed": "feed", "#lab": "lab",
   "#applications": "applications", "#add": "applications", "#responses": "responses", "#people": "people",
-  "#skills": "skills", "#mastercv": "mastercv", "#profile": "profile",
+  "#skills": "skills", "#mastercv": "mastercv", "#cvs": "cvs", "#profile": "profile",
 };
 function routeFromHash(): Route {
   const m = window.location.hash.match(JOB_HASH);
@@ -55,7 +56,7 @@ const SECTIONS: { key: Section; label: string; pages: { view: View; label: strin
   { key: "feed", label: "Feed", pages: [{ view: "feed", label: "Jobs" }, { view: "lab", label: "Lab" }] },
   { key: "applications", label: "Applications", pages: [{ view: "applications", label: "Applications" }] },
   { key: "outreach", label: "Outreach", pages: [{ view: "responses", label: "Responses" }, { view: "people", label: "People" }] },
-  { key: "me", label: "Me", pages: [{ view: "skills", label: "Skills" }, { view: "mastercv", label: "Master CV" }, { view: "profile", label: "Profile" }] },
+  { key: "me", label: "Me", pages: [{ view: "skills", label: "Skills" }, { view: "mastercv", label: "Master CV" }, { view: "cvs", label: "CVs" }, { view: "profile", label: "Profile" }] },
 ];
 const sectionOf = (v: View) => SECTIONS.find((s) => s.pages.some((p) => p.view === v));
 
@@ -179,7 +180,7 @@ function Shell() {
             ))}
           </div>
         )}
-        {view === "home" ? <Home /> : view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "skills" ? <Skills /> : view === "mastercv" ? <MasterCv /> : <ProfilePage />}
+        {view === "home" ? <Home /> : view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "skills" ? <Skills /> : view === "mastercv" ? <MasterCv /> : view === "cvs" ? <CvGenerator /> : <ProfilePage />}
       </div>
     </div>
   );

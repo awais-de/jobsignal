@@ -68,7 +68,8 @@ export default function MasterCv() {
     <div className="master-cv">
       <p className="muted">
         Everything your CVs can contain, once, in German and English. The generator on each job's CV tab offers these records to tick;
-        what you change there stays with that CV. Write a link as <code>[text](https://…)</code> and bold as <code>**text**</code>.
+        what you change there stays with that CV. Write a link as <code>[text](https://…)</code> and bold as <code>**text**</code>.{" "}
+        <a href="#cvs">Make a CV without a job →</a>
       </p>
       {error && <p className="notice">{error} <button className="link" onClick={() => setError(null)}>×</button></p>}
       <Formats items={items} onImported={reload} onError={setError} />

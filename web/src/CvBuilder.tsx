@@ -27,7 +27,10 @@ const BUILD_COLUMNS = "id,status,pages,error,file_name,pdf_path,created_at,resum
 type Job = { id: string; title: string; company_name: string; description: string | null;
              must_have_skills: string[] | null; nice_to_have_skills: string[] | null };
 
-export default function CvBuilder({ job, active }: { job: Job; active: boolean }) {
+/** A CV made whenever needed, without a job (owner request 2026-10-19): one saved draft with a name. */
+export type AdHoc = { id: string; name: string; base_cv_id: string | null };
+
+export default function CvBuilder({ job, adhoc, active }: { job?: Job; adhoc?: AdHoc; active: boolean }) {
   const [bases, setBases] = useState<BaseCv[] | null>(null);
   const [baseId, setBaseId] = useState("");
   const [items, setItems] = useState<Item[] | null>(null);
@@ -45,11 +48,13 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
         if (error) return setError(error.message);
         const list = data as BaseCv[];
         setBases(list);
-        const lang = adLanguage(job.description);
-        setBaseId((cur) => cur || (list.find((b) => b.lang === lang) ?? list[0])?.id || "");
+        // A job's CV starts in the ad's language; an ad-hoc CV in the format it was last made with.
+        const lang = job ? adLanguage(job.description) : null;
+        const saved = adhoc?.base_cv_id && list.some((b) => b.id === adhoc.base_cv_id) ? adhoc.base_cv_id : null;
+        setBaseId((cur) => cur || saved || (list.find((b) => b.lang === lang) ?? list[0])?.id || "");
       });
     loadItems().then(setItems, (e) => setError(e.message));
-  }, [job.description]);
+  }, [job?.description, adhoc?.base_cv_id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const base = bases?.find((b) => b.id === baseId) ?? null;
   const fmt = useMemo<{ f: CvFormat | null; error: string | null }>(() => {
@@ -64,12 +69,12 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   // for them or you're strong (6+). Category labels per language come from the Skills page.
   const asked = useMemo(() => {
     const ids = new Set<string>();
-    for (const raw of [...(job.must_have_skills ?? []), ...(job.nice_to_have_skills ?? [])]) {
+    for (const raw of [...(job?.must_have_skills ?? []), ...(job?.nice_to_have_skills ?? [])]) {
       const x = sk.index?.match(raw);
       if (x) sk.index!.lineage(x).forEach((y) => ids.add(y.id));
     }
     return ids;
-  }, [sk.index, job.must_have_skills, job.nice_to_have_skills]);
+  }, [sk.index, job?.must_have_skills, job?.nice_to_have_skills]);
   const skillGroups = useMemo<SkillGroup[]>(() => {
     const mine = (sk.catalog ?? []).filter((x) => sk.isMine(x));
     const by = new Map<string, typeof mine>();
@@ -87,33 +92,40 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   const newDraft = useCallback((): TextDraft | null =>
     (f && m ? { v: 2, header: initialDraft(f, m, []).header, text: "", ticked: [] } : null), [f, m]);
 
-  // The draft: saved per job and format; a new one starts with the header and an empty text.
+  // The draft: a job's is saved per job and format; an ad-hoc CV is one draft whatever the format (switching
+  // the format only changes the layout). A new one starts with the header and an empty text.
   const loadedFor = useRef("");
   useEffect(() => {
     if (!f || !m || !base || !sk.catalog) return;
-    const key = `${job.id}.${base.id}`;
-    if (loadedFor.current === key) return;
+    const key = adhoc ? adhoc.id : `${job!.id}.${base.id}`;
+    if (loadedFor.current === key) {
+      if (adhoc) setSaveState("dirty");       // the format changed: remember it with the draft
+      return;
+    }
     loadedFor.current = key;
-    supabase.from("cv_drafts").select("data").eq("job_posting_id", job.id).eq("base_cv_id", base.id).maybeSingle()
+    const q = supabase.from("cv_drafts").select("data");
+    (adhoc ? q.eq("id", adhoc.id) : q.eq("job_posting_id", job!.id).eq("base_cv_id", base.id)).maybeSingle()
       .then(({ data }) => {
         const saved = (data as { data: TextDraft } | null)?.data;
         setDraft(saved?.v === 2 ? saved : newDraft());
         setSaveState("saved");
       });
-  }, [f, m, base, job.id, sk.catalog, newDraft]);
+  }, [f, m, base, job, adhoc, sk.catalog, newDraft]);
 
   // Autosave, a moment after the last change.
   useEffect(() => {
     if (!draft || saveState !== "dirty" || !base) return;
     const t = setTimeout(async () => {
       setSaveState("saving");
-      const { error } = await supabase.from("cv_drafts")
-        .upsert({ job_posting_id: job.id, base_cv_id: base.id, data: draft }, { onConflict: "job_posting_id,base_cv_id" });
+      const { error } = adhoc
+        ? await supabase.from("cv_drafts").update({ base_cv_id: base.id, data: draft }).eq("id", adhoc.id)
+        : await supabase.from("cv_drafts")
+          .upsert({ job_posting_id: job!.id, base_cv_id: base.id, data: draft }, { onConflict: "job_posting_id,base_cv_id" });
       if (error) setError(error.message);
       setSaveState(error ? "dirty" : "saved");
     }, 1200);
     return () => clearTimeout(t);
-  }, [draft, saveState, base, job.id]);
+  }, [draft, saveState, base, job, adhoc]);
 
   const change = useCallback((fn: (d: TextDraft) => void) => {
     setDraft((d) => { if (!d) return d; const n = structuredClone(d); fn(n); return n; });
@@ -143,10 +155,11 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   const cvDraft = useMemo<CvDraft | null>(() => (draft && parsed ? { v: 1, header: draft.header, sections: parsed.sections } : null), [draft, parsed]);
 
   const loadBuilds = useCallback(async () => {
-    const { data } = await supabase.from("cv_builds").select(BUILD_COLUMNS).eq("job_posting_id", job.id)
+    const q = supabase.from("cv_builds").select(BUILD_COLUMNS);
+    const { data } = await (adhoc ? q.eq("cv_draft_id", adhoc.id) : q.eq("job_posting_id", job!.id))
       .order("created_at", { ascending: false }).limit(5);
     setBuilds((data ?? []) as unknown as Build[]);
-  }, [job.id]);
+  }, [job, adhoc]);
   useEffect(() => { loadBuilds(); }, [loadBuilds]);
   const pending = builds.some((b) => b.status === "queued" || b.status === "compiling");
   useEffect(() => {
@@ -157,12 +170,13 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
 
   const tex = useMemo(() => (f && cvDraft ? renderTex(f, cvDraft) : ""), [f, cvDraft]);
   const plain = useMemo(() => (cvDraft ? plainText(cvDraft) : ""), [cvDraft]);
-  const fileName = cvFileName(lang, draft?.header.name ?? null, job.company_name);
+  // An ad-hoc CV is named for the company typed in (if any): CV_Name_Company.pdf, else CV_Name.pdf.
+  const fileName = cvFileName(lang, draft?.header.name ?? null, job ? job.company_name : draft?.company ?? "");
   const keywords = useMemo(() => {
     const t = plain.toLowerCase();
-    return [...(job.must_have_skills ?? []).map((s) => ({ s, must: true })), ...(job.nice_to_have_skills ?? []).map((s) => ({ s, must: false }))]
+    return [...(job?.must_have_skills ?? []).map((s) => ({ s, must: true })), ...(job?.nice_to_have_skills ?? []).map((s) => ({ s, must: false }))]
       .map((k) => ({ ...k, hit: t.includes(k.s.toLowerCase()) }));
-  }, [plain, job.must_have_skills, job.nice_to_have_skills]);
+  }, [plain, job?.must_have_skills, job?.nice_to_have_skills]);
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
   async function copyTex() {
@@ -177,7 +191,7 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
     if (!f || !base) return;
     setBusy(true);
     const { data, error } = await supabase.from("cv_builds").insert({
-      job_posting_id: job.id, base_cv_id: base.id, lang, tex_source: tex, plain_text: plain, file_name: fileName,
+      job_posting_id: job?.id ?? null, cv_draft_id: adhoc?.id ?? null, base_cv_id: base.id, lang, tex_source: tex, plain_text: plain, file_name: fileName,
     }).select(BUILD_COLUMNS).single();
     if (error) { setBusy(false); return setError(error.message); }
     const run = await supabase.functions.invoke("trigger-run", { body: { workflow: "cv", build_id: (data as unknown as Build).id } });
@@ -192,7 +206,7 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
   }
   async function saveToDrive(b: Build) {
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("cv-save", { body: { build_id: b.id, label: `${job.company_name} – ${job.title}`.slice(0, 120) } });
+    const { data, error } = await supabase.functions.invoke("cv-save", { body: { build_id: b.id, label: (job ? `${job.company_name} – ${job.title}` : [adhoc?.name, draft?.company].filter(Boolean).join(" – ")).slice(0, 120) } });
     setBusy(false);
     if (error || !data?.ok) {
       const detail = (data as { error?: string; detail?: string } | null);
@@ -239,9 +253,9 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
 
       {draft && f && m && parsed && (
         <>
-          <HeaderBox draft={draft} change={change} />
+          <HeaderBox draft={draft} change={change} adhoc={!!adhoc} />
           <div className="cv-split">
-            <Picks plan={plan} m={m} ticked={draft.ticked} onTick={tick} onSuggested={tickSuggested} />
+            <Picks plan={plan} m={m} ticked={draft.ticked} onTick={tick} onSuggested={tickSuggested} hasJob={!!job} />
             <div className="cv-editor">
               <textarea className="cv-text" value={draft.text} spellCheck
                         placeholder={"Tick on the left, or write here:\n\n# Profil\nText …\n\n# Berufserfahrung\n## Company | 11/2023 – 06/2024\nRole | City\n- A bullet"}
@@ -296,10 +310,14 @@ export default function CvBuilder({ job, active }: { job: Job; active: boolean }
 
 type Change = (fn: (d: TextDraft) => void) => void;
 
-function HeaderBox({ draft, change }: { draft: TextDraft; change: Change }) {
+function HeaderBox({ draft, change, adhoc }: { draft: TextDraft; change: Change; adhoc: boolean }) {
   const h = draft.header;
   return (
     <div className="cv-section">
+      {adhoc && (
+        <label className="cv-field cv-company"><span>For company (optional: names the PDF file)</span>
+          <input value={draft.company ?? ""} placeholder="e.g. Beispiel AG" onChange={(e) => change((d) => { d.company = e.target.value; })} /></label>
+      )}
       <div className="cv-slots three">
         <label className="cv-field"><span>Name</span><input value={h.name} onChange={(e) => change((d) => { d.header.name = e.target.value; })} /></label>
         <label className="cv-field"><span>Headline</span><input value={h.headline} placeholder="optional" onChange={(e) => change((d) => { d.header.headline = e.target.value; })} /></label>
@@ -318,8 +336,8 @@ function HeaderBox({ draft, change }: { draft: TextDraft; change: Change }) {
 }
 
 /** The left pane: sections, their records and bullets to tick. */
-function Picks({ plan, m, ticked, onTick, onSuggested }: {
-  plan: PlanSection[]; m: Master; ticked: string[]; onTick: (t: Tick, on: boolean) => void; onSuggested: () => void;
+function Picks({ plan, m, ticked, onTick, onSuggested, hasJob }: {
+  plan: PlanSection[]; m: Master; ticked: string[]; onTick: (t: Tick, on: boolean) => void; onSuggested: () => void; hasJob: boolean;
 }) {
   const on = (key: string) => ticked.includes(key);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -340,7 +358,7 @@ function Picks({ plan, m, ticked, onTick, onSuggested }: {
             </div>
             {isOpen && (
               <div className="cv-pick-body">
-                {s.key === "skills" && <button className="link small" onClick={onSuggested}>Tick the job's skills and your strong ones (6+)</button>}
+                {s.key === "skills" && <button className="link small" onClick={onSuggested}>{hasJob ? "Tick the job's skills and your strong ones (6+)" : "Tick your strong skills (6+)"}</button>}
                 {count === 0 && s.key !== "skills" && <p className="muted small">Nothing in the master CV: write it in the box.</p>}
                 {s.groups.map((g, gi) => (
                   <div key={gi} className="cv-pick-group">

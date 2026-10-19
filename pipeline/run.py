@@ -26,7 +26,7 @@ import httpx
 
 from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
-from pipeline import ghost
+from pipeline import cv_compile, ghost
 from pipeline.enrich import Enricher
 from pipeline.rank import keyword_overlap, score
 from pipeline.skills_db import skills_from_rows
@@ -295,6 +295,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
+        # CV previews (owner decision 2026-10-19): unsaved compiles go after 30 days.
+        stats["cv_previews_pruned"] = _optional("cv previews", lambda: cv_compile.prune_stale(30))
         # Retention (spec 13): email bodies are kept for 12 months.
         stats["purged_email_bodies"] = db.purge_old_email_bodies(int(tracking.get("email_body_retention_months", 12)))
 

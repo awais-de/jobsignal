@@ -6,6 +6,11 @@ writes the page count (or the LaTeX error) back to the row.
 The CV is personal and this repo's Actions logs are public: LaTeX output (which quotes the text) goes
 to files only, the log prints counts and states, and errors are stored in the private database.
 A package missing from the small TeX installation is installed and the compile retried.
+
+Compiles are previews (owner decision 2026-10-19): once a new one of the same CV succeeds, the older
+ones that weren't saved to Drive are deleted, PDF and row. "Same CV": the same ad-hoc CV, or the same
+job and format. Saved builds (status 'saved') are never touched. The daily run also deletes unsaved
+compiles older than 30 days (prune_stale).
 """
 
 from __future__ import annotations
@@ -16,7 +21,9 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -34,7 +41,8 @@ def main(build_id: str) -> int:
     url, key = os.environ["SUPABASE_URL"].rstrip("/"), os.environ["SUPABASE_SECRET_KEY"]
     h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     c = httpx.Client(timeout=60)
-    rows = c.get(f"{url}/rest/v1/cv_builds", headers=h, params={"id": f"eq.{build_id}", "select": "tex_source"}).json()
+    rows = c.get(f"{url}/rest/v1/cv_builds", headers=h, params={
+        "id": f"eq.{build_id}", "select": "tex_source,created_at,job_posting_id,base_cv_id,cv_draft_id"}).json()
     if not rows:
         log.error("build not found")
         return 1
@@ -58,7 +66,51 @@ def main(build_id: str) -> int:
         r.raise_for_status()
         patch({"status": "compiled", "pages": pages, "pdf_path": path})
         log.info("cv build compiled: %d page%s", pages, "" if pages == 1 else "s")
+    try:
+        n = delete_builds(c, url, key, older_previews(c, url, h, build_id, rows[0]))
+        if n:
+            log.info("replaced %d earlier preview%s", n, "" if n == 1 else "s")
+    except httpx.HTTPError as exc:          # a leftover preview costs a little storage, never the compile
+        log.warning("couldn't remove earlier previews: %s", type(exc).__name__)
     return 0
+
+
+def older_previews(c: httpx.Client, url: str, h: dict[str, str], build_id: str, b: dict[str, Any]) -> list[dict[str, Any]]:
+    """Earlier, unsaved compiles of the same CV: replaced by this one."""
+    params = {"select": "id,pdf_path", "id": f"neq.{build_id}", "status": "in.(compiled,failed)",
+              "resume_id": "is.null", "created_at": f"lt.{b['created_at']}"}
+    if b.get("cv_draft_id"):
+        params["cv_draft_id"] = f"eq.{b['cv_draft_id']}"
+    elif b.get("job_posting_id") and b.get("base_cv_id"):
+        params.update(job_posting_id=f"eq.{b['job_posting_id']}", base_cv_id=f"eq.{b['base_cv_id']}", cv_draft_id="is.null")
+    else:
+        return []
+    return c.get(f"{url}/rest/v1/cv_builds", headers=h, params=params).json()
+
+
+def delete_builds(c: httpx.Client, url: str, key: str, builds: list[dict[str, Any]]) -> int:
+    """Deletes the PDFs (storage API) and then the rows of these builds."""
+    if not builds:
+        return 0
+    h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    paths = [b["pdf_path"] for b in builds if b.get("pdf_path")]
+    if paths:
+        c.request("DELETE", f"{url}/storage/v1/object/cv-pdfs", headers=h, json={"prefixes": paths}).raise_for_status()
+    ids = ",".join(b["id"] for b in builds)
+    c.delete(f"{url}/rest/v1/cv_builds", headers=h, params={"id": f"in.({ids})"}).raise_for_status()
+    return len(builds)
+
+
+def prune_stale(days: int = 30) -> int:
+    """Unsaved compiles older than `days`, e.g. of CVs no longer worked on (daily run)."""
+    url, key = os.environ["SUPABASE_URL"].rstrip("/"), os.environ["SUPABASE_SECRET_KEY"]
+    h = {"apikey": key, "Authorization": f"Bearer {key}"}
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with httpx.Client(timeout=60) as c:
+        rows = c.get(f"{url}/rest/v1/cv_builds", headers=h, params={
+            "select": "id,pdf_path", "status": "in.(compiled,failed,queued,compiling)", "resume_id": "is.null",
+            "created_at": f"lt.{since}", "limit": 500}).json()
+        return delete_builds(c, url, key, rows)
 
 
 def compile_tex(work: Path) -> tuple[bool, int, str | None]:

@@ -162,6 +162,17 @@ export default function CvBuilder({ job, adhoc, active }: { job?: Job; adhoc?: A
   }, [job, adhoc]);
   useEffect(() => { loadBuilds(); }, [loadBuilds]);
   const pending = builds.some((b) => b.status === "queued" || b.status === "compiling");
+
+  // Preview (owner decision 2026-10-19): the newest compiled PDF, shown on the page. Each compile replaces
+  // the previous unsaved one (pipeline/cv_compile.py), so this is always the latest look.
+  const latest = builds.find((b) => (b.status === "compiled" || b.status === "saved") && b.pdf_path) ?? null;
+  const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
+  const [showPreview, setShowPreview] = useState(true);
+  useEffect(() => {
+    if (!latest || !active || preview?.id === latest.id) return;
+    supabase.storage.from("cv-pdfs").createSignedUrl(latest.pdf_path!, 3600)
+      .then(({ data }) => data && setPreview({ id: latest.id, url: data.signedUrl }));
+  }, [latest, active, preview?.id]);
   useEffect(() => {
     if (!pending || !active) return;
     const t = setInterval(loadBuilds, 4000);
@@ -283,6 +294,17 @@ export default function CvBuilder({ job, adhoc, active }: { job?: Job; adhoc?: A
         <span className="muted small">File: {fileName}</span>
       </div>
 
+      {latest && preview?.id === latest.id && (
+        <div className="cv-preview">
+          <div className="row small">
+            <strong>Preview</strong>
+            <span className="muted">{latest.pages} page{latest.pages === 1 ? "" : "s"} · compiled {new Date(latest.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+            <button className="link small" onClick={() => setShowPreview((x) => !x)}>{showPreview ? "Hide" : "Show"}</button>
+            <a className="link small" href={preview.url} target="_blank" rel="noreferrer">Open in a new tab ↗</a>
+          </div>
+          {showPreview && <iframe className="cv-preview-frame" src={`${preview.url}#view=FitH`} title="CV preview" />}
+        </div>
+      )}
       {builds.length > 0 && (
         <ul className="builds">
           {builds.map((b) => (
@@ -294,7 +316,7 @@ export default function CvBuilder({ job, adhoc, active }: { job?: Job; adhoc?: A
                 <span className={`status ${b.pages && b.pages > 2 ? "status-orange" : "status-green"}`}>{b.pages} page{b.pages === 1 ? "" : "s"}</span>
               )}
               {(b.status === "compiled" || b.status === "saved") && <button className="link" onClick={() => downloadPdf(b)}>Download PDF</button>}
-              {b.status === "compiled" && <button className="small" disabled={busy} onClick={() => saveToDrive(b)}>Save to Drive &amp; register</button>}
+              {b.status === "compiled" && <button className="small" disabled={busy} onClick={() => saveToDrive(b)} title="Keeps this version: previews are replaced by the next compile">Save to Drive &amp; register</button>}
               {b.status === "saved" && b.resumes && (
                 <> <span className="resume-chip">{b.resumes.uid}</span>{b.resumes.drive_url && <> <a href={b.resumes.drive_url} target="_blank" rel="noreferrer">Drive ↗</a></>}</>
               )}

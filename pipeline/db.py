@@ -269,15 +269,21 @@ class Database:
             self._req("PATCH", "/companies", params={"name_normalized": f"in.({_in_list(chunk)})", "relevant": "eq.false"},
                       json={"relevant": True})
 
+    def prioritise_companies(self, names_normalized: list[str]) -> None:
+        """Probe these first (alert jobs without a description: their employer listing has one)."""
+        for chunk in _chunks(sorted(set(names_normalized)), BATCH):
+            self._req("PATCH", "/companies", params={"name_normalized": f"in.({_in_list(chunk)})", "priority": "eq.0"},
+                      json={"priority": 1})
+
     def companies_to_probe(self, limit: int, now: datetime) -> list[dict[str, Any]]:
         pending = self._req("GET", "/companies", params={
             "select": "id,name", "discovery_status": "eq.pending", "is_agency": "eq.false", "deleted_at": "is.null",
-            "order": "relevant.desc,created_at.asc", "limit": limit})
+            "order": "priority.desc,relevant.desc,created_at.asc", "limit": limit})
         if len(pending) >= limit:
             return pending
         retry = self._req("GET", "/companies", params={
             "select": "id,name", "discovery_status": "eq.not_found", "is_agency": "eq.false",
-            "next_check_at": f"lte.{now.isoformat()}", "order": "relevant.desc,next_check_at.asc",
+            "next_check_at": f"lte.{now.isoformat()}", "order": "priority.desc,relevant.desc,next_check_at.asc",
             "limit": limit - len(pending)})
         return pending + retry
 

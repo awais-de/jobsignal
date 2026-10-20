@@ -73,6 +73,43 @@ def _details(lines: list[str]) -> dict[str, Any]:
     return out
 
 
+# StepStone's matches include jobs abroad (2026-10-20: London, Oldham, Ho Chi Minh City). The country comes
+# from the location: a UK postcode, or a known city abroad; anything else is taken as Germany.
+UK_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b")
+ABROAD = {
+    "GB": ("london", "manchester", "birmingham", "edinburgh", "glasgow", "leeds", "bristol", "oldham", "cambridge, uk", "oxford, uk"),
+    "AT": ("wien", "vienna", "graz", "salzburg", "innsbruck", "österreich", "austria"),
+    "CH": ("zürich", "zurich", "basel", "bern", "genf", "geneva", "lausanne", "luzern", "zug", "schweiz", "switzerland"),
+    "NL": ("amsterdam", "rotterdam", "den haag", "utrecht", "eindhoven", "niederlande", "netherlands"),
+    "FR": ("paris", "lyon", "frankreich", "france"),
+    "PL": ("warschau", "warsaw", "krakau", "krakow", "kraków", "breslau", "wrocław", "polen", "poland"),
+    "CZ": ("prag", "prague", "brno", "tschechien"),
+    "ES": ("barcelona", "madrid", "valencia", "spanien", "spain"),
+    "PT": ("lissabon", "lisbon", "porto", "portugal"),
+    "IE": ("dublin", "irland", "ireland"),
+    "LU": ("luxemburg", "luxembourg"),
+    "BE": ("brüssel", "brussels", "antwerpen", "belgien"),
+    "DK": ("kopenhagen", "copenhagen", "dänemark"),
+    "SE": ("stockholm", "schweden"),
+    "VN": ("ho-chi-minh", "ho chi minh", "hanoi", "vietnam"),
+    "IN": ("bangalore", "bengaluru", "pune", "hyderabad", "mumbai", "indien", "india"),
+    "SG": ("singapur", "singapore"),
+    "US": ("new york", "san francisco", "boston", "seattle", "usa"),
+}
+
+
+def _country(location: str) -> str:
+    if UK_POSTCODE.search(location):
+        return "GB"
+    low = location.lower()
+    if re.search(r"\b\d{5}\b", low):                 # a German postcode
+        return "DE"
+    for code, names in ABROAD.items():
+        if any(re.search(rf"(^|[^a-zäöüß]){re.escape(n)}($|[^a-zäöüß])", low) for n in names):
+            return code
+    return "DE"
+
+
 def _location(line: str) -> tuple[str | None, str | None]:
     """'Hannover, Münster und Frankfurt am Main' → ('Hannover', 'Hannover; Münster; Frankfurt am Main')."""
     parts = [re.sub(r"^\d{5}\s+", "", p).strip() for p in re.split(r",\s*|\s+und\s+|\s+oder\s+", TRUNCATED.sub("", line))
@@ -94,7 +131,7 @@ def _posting(title: str, cut: bool, link: str, company: str, location: str, deta
         apply_url=link if m else None,
         location_raw=location_raw,
         city=city,
-        country="DE",
+        country=_country(location),
         remote_policy="remote" if re.search(r"\bremote\b", title, re.I) and "hybrid" not in title.lower() else d.get("remote_policy"),
         posted_date=None,
         contract_type=d.get("contract_type"),

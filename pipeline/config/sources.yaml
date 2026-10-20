@@ -30,4 +30,5 @@ discovery:
   # Staffing agencies post for other employers: never probed (spec 7.8). Lower-case substrings.
   agencies: [hays, randstad, adecco, manpower, experis, ferchau, brunel, gulp, amadeus fire, robert half,
              michael page, page personnel, dis ag, persona service, orizon, tempton, jobtimum, akkodis,
-             modis, solcom, etengo, freelancermap, talentschuppen, piening, timepartner, i.k. hofmann]
+             modis, solcom, etengo, freelancermap, talentschuppen, piening, timepartner, i.k. hofmann,
+             instaffo, hapeko, grinnberg]

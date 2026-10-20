@@ -151,3 +151,12 @@ https://www.stepstone.de/stellenangebote----44444444-inline.html
     assert j.company_name == "Beispiel Contact GmbH" and j.contract_type == "part_time" and j.source_job_id == "44444444"
     assert j.source_data["age_text"] == "vor 6 Tagen" and j.description == "Wir suchen dich für unser Datenteam."
 
+
+def test_jobs_abroad_get_their_country():
+    from pipeline.sources.alerts import _country
+    assert _country("London EC4V 3BJ") == "GB" and _country("Oldham OL1 4EQ") == "GB"
+    assert _country("Ho-Chi-Minh-Stadt") == "VN" and _country("Wien") == "AT" and _country("Zürich") == "CH"
+    assert _country("Frankfurt am Main (60311)") == "DE" and _country("Berlin") == "DE" and _country("bundesweit") == "DE"
+    assert _country("Remote") == "DE" and _country("Siegburg bei Köln/Bonn") == "DE"
+    assert _country("Bad Homburg") == "DE"                      # 'homburg', not a foreign city
+

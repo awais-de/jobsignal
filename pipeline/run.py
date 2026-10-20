@@ -188,6 +188,12 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                                    "error": type(exc).__name__, "ms": _ms(t0)})
             log.warning("source %s failed: %s", label, type(exc).__name__)
 
+    # Alert emails don't say who posts: recruiters from the agency list are marked (ghost signal, badge).
+    agencies = [x.lower() for x in (sources_cfg.get("discovery") or {}).get("agencies", [])]
+    for r in raws:
+        if r.source.startswith("alert") and r.poster_type is None and any(x in r.company_name.lower() for x in agencies):
+            r.poster_type = "agency"
+
     # 2. dedupe (hand-added postings first get their real hash, so a job applied to by hand
     #    isn't surfaced again when a source lists it)
     if run_id and db:
@@ -201,6 +207,11 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         texts = db.descriptions([sid for _, sid in merge.inherit])
         for c, sid in merge.inherit:
             c.raw.description = c.raw.description or texts.get(sid)
+    # A better source for a job we already have (e.g. the employer's listing of a StepStone alert job) isn't
+    # stale just because it arrived in that company's first load: the job was already new to us.
+    for c in candidates:
+        if c.supersedes:
+            c.raw.source_data["known_fresh"] = True
     # Known watchlist pages arrive as stubs (not refetched); they only refresh last_seen_at.
     candidates = [c for c in candidates if not (c.raw.source_data.get("stub") and c.is_new)]
 
@@ -549,6 +560,9 @@ def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], no
         counts["seeded_from_postings"] = len(seed)
     db.register_companies(rows_from((c.raw.company_name, c.raw.source, c.raw.country, c.passed, c.raw.poster_type)
                                     for c in candidates if c.is_new and not c.raw.source_data.get("stub")))
+    # Alert jobs without a description: their employers are probed first (owner request 2026-10-20).
+    db.prioritise_companies([normalize_company(c.raw.company_name) for c in candidates
+                             if c.is_new and c.passed and c.raw.source.startswith("alert") and not c.raw.description])
 
     api = ATS(httpx.Client(headers={"User-Agent": "jobsignal/0.1 (personal job search)"}, timeout=6,
                            follow_redirects=True))

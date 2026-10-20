@@ -43,7 +43,9 @@ class HardFilters:
             return "location"
         if raw.contract_type and raw.contract_type not in self.contract_types:
             return "contract_type"
-        if watched:
+        if raw.source_data.get("known_fresh"):
+            pass                                   # replaces a job we already have (run.py): not stale
+        elif watched:
             # Owner decision 2026-10-12: a company site's job with a posting date gets the same
             # freshness window (a company's first load brought in jobs posted weeks ago). An undated
             # job counts as new from the second day on (the link wasn't there yesterday), but not

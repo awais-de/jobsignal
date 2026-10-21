@@ -1,0 +1,36 @@
+name: fast-lane
+
+# Every 30 minutes during the day, started by Supabase's scheduler (migration ..._fast_lane.sql): the quick
+# sources (Arbeitsagentur published today, Arbeitnow, StepStone alerts, group-A career sites) and an instant
+# email with what's new. It never runs alongside the daily run (pipeline/run.py checks); logs counts only.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-lane             # its own group: a queued fast run must never cancel a queued daily run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pipeline.run --fast
+        env:
+          PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ACTION_LINK_SECRET: ${{ secrets.ACTION_LINK_SECRET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          APP_URL: ${{ vars.APP_URL }}

@@ -55,12 +55,14 @@ Deno.serve(async (req) => {
   // { workflow: "rerank" } re-ranks stored jobs after a profile save (no fetch, no email);
   // anything else starts the daily pipeline. Only the workflows in FILES (and daily) can be started.
   const raw = await req.json().catch(() => ({}));
-  const body = cron ? { workflow: "daily" } : raw;
+  // The scheduler may start the daily run or the fast lane (every 30 min, migration ..._fast_lane.sql), nothing else.
+  const body = cron ? { workflow: raw?.workflow === "fast" ? "fast" : "daily" } : raw;
   // { workflow: "cv", build_id } compiles one CV build (cv.yml); the id must be an existing build.
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if (body?.workflow === "cv" && !UUID.test(String(body?.build_id ?? ""))) return json({ error: "bad_build_id" }, 400);
   // The control panel's upkeep buttons: process the AI backlog, send a test email.
-  const FILES: Record<string, string> = { rerank: "rerank.yml", cv: "cv.yml", backlog: "backlog.yml", smtp: "smtp-test.yml" };
+  const FILES: Record<string, string> = { rerank: "rerank.yml", cv: "cv.yml", backlog: "backlog.yml", smtp: "smtp-test.yml",
+                                          fast: "fastlane.yml" };
   const file = FILES[String(body?.workflow ?? "")] ?? "daily.yml";
   const workflow = `https://api.github.com/repos/${REPO}/actions/workflows/${file}`;
 
@@ -75,6 +77,7 @@ Deno.serve(async (req) => {
     headers,
     body: JSON.stringify(file === "daily.yml"
       ? { ref: "main", inputs: { dry_run: "false", scheduled: cron ? "true" : "false" } }
+      : file === "fastlane.yml" ? { ref: "main" }
       : file === "cv.yml" ? { ref: "main", inputs: { build_id: body.build_id } }
       : file === "backlog.yml" ? { ref: "main", inputs: { dry_run: "false" } } : { ref: "main" }),
   });

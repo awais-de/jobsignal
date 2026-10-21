@@ -672,6 +672,16 @@ ol.disc-list.numbered { list-style: decimal; padding-left: 22px; }
 .badge.tier-badge.tier-A { background: #ddf4ff; color: #0550ae; }
 @media (prefers-color-scheme: dark) { .badge.tier-badge.tier-A { background: #0c2d6b; color: #a5d6ff; } }
 
+/* Home: time to apply */
+.tta { max-width: 1100px; margin-bottom: 12px; }
+.tta-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 22px; margin: 6px 0; }
+.tta-step { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 90px; }
+.tta-step strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.tta-step.total { margin-left: auto; padding-left: 16px; border-left: 1px solid var(--border); }
+.tta-arrow { position: absolute; right: -17px; top: 20px; color: var(--muted); }
+.warn-text { color: var(--danger); font-weight: 600; }
+@media (max-width: 600px) { .tta-step.total { margin-left: 0; padding-left: 0; border-left: none; } .tta-arrow { display: none; } }
+
 /* Ghost check */
 .badge.ghost-verify { background: #fff4d6; color: #7d4e00; }
 .badge.ghost-skip { background: #ffe1e0; color: #a40e26; }

@@ -98,3 +98,16 @@ def test_app_warnings_come_first_in_the_digest():
     assert "https://app.example/#control" in text and "App warnings" in html
     _, text, _ = build_digest([posting()], 1, date(2026, 10, 14))
     assert "App warnings" not in text
+
+
+def test_instant_alert_names_the_job_in_the_subject():
+    a, b = posting(), posting()
+    b.title, b.company_name = "BI Developer (m/w/d)", "Muster AG"
+    subject, text, html = build_digest([a, b], 2, date(2026, 10, 21), instant=True)
+    assert subject.startswith(f"New job: {a.title} – {a.company_name}") and subject.endswith("(+1 more)")
+    assert "Muster AG" in text
+
+
+def test_digest_mentions_jobs_already_sent_as_instant_alerts():
+    _, text, _ = build_digest([posting()], 1, date(2026, 10, 21), app_url="https://app.example", already_alerted=3)
+    assert "3 more jobs came in during the last 24 h and went out as instant alerts." in text

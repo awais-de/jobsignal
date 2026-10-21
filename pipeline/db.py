@@ -47,8 +47,17 @@ class Database:
 
     # -- runs -----------------------------------------------------------------
     def has_successful_run_since(self, since: datetime) -> bool:
+        """A successful *daily* run since `since` (fast-lane runs don't count)."""
         rows = self._req("GET", "/pipeline_runs", params={
-            "select": "id", "status": "eq.success", "dry_run": "eq.false",
+            "select": "id", "status": "eq.success", "dry_run": "eq.false", "kind": "eq.daily",
+            "started_at": f"gte.{since.isoformat()}", "limit": 1})
+        return bool(rows)
+
+    def run_in_progress(self, kind: str, within_minutes: int) -> bool:
+        """A run of this kind started in the last `within_minutes` and still running."""
+        since = datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
+        rows = self._req("GET", "/pipeline_runs", params={
+            "select": "id", "status": "eq.running", "kind": f"eq.{kind}", "dry_run": "eq.false",
             "started_at": f"gte.{since.isoformat()}", "limit": 1})
         return bool(rows)
 
@@ -56,8 +65,8 @@ class Database:
         rows = self._req("GET", "/pipeline_runs", params={"select": "id", "status": "eq.success", "dry_run": "eq.false", "limit": 1})
         return bool(rows)
 
-    def start_run(self, dry_run: bool) -> str:
-        rows = self._req("POST", "/pipeline_runs", json={"dry_run": dry_run}, headers={"Prefer": "return=representation"})
+    def start_run(self, dry_run: bool, kind: str = "daily") -> str:
+        rows = self._req("POST", "/pipeline_runs", json={"dry_run": dry_run, "kind": kind}, headers={"Prefer": "return=representation"})
         return rows[0]["id"]
 
     def finish_run(self, run_id: str, status: str, stats: dict[str, Any], error: str | None = None) -> None:
@@ -341,6 +350,21 @@ class Database:
         for chunk in _chunks(ids, BATCH):
             self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})"},
                       json={"surfaced_on": day.isoformat()})
+        self.mark_notified(ids)
+
+    def mark_notified(self, ids: list[str]) -> None:
+        """When the owner was told about these jobs (the time-to-apply funnel measures from it)."""
+        now = datetime.now(timezone.utc).isoformat()
+        for chunk in _chunks(ids, BATCH):
+            self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})", "notified_at": "is.null"},
+                      json={"notified_at": now})
+
+    def notified_since(self, since: datetime) -> int:
+        """Jobs the fast lane sent as instant alerts since `since` (surfaced_on stays empty for those)."""
+        resp = self.client.get("/job_postings", params={"select": "id", "notified_at": f"gte.{since.isoformat()}",
+                                                         "surfaced_on": "is.null", "limit": 1},
+                               headers={"Prefer": "count=exact", "Range": "0-0"})
+        return int(resp.headers.get("content-range", "*/0").split("/")[-1] or 0)
 
 
 def _row(c: Candidate) -> dict[str, Any]:

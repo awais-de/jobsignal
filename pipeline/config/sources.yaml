@@ -32,3 +32,9 @@ discovery:
              michael page, page personnel, dis ag, persona service, orizon, tempton, jobtimum, akkodis,
              modis, solcom, etengo, freelancermap, talentschuppen, piening, timepartner, i.k. hofmann,
              instaffo, hapeko, grinnberg]
+
+fast_lane:
+  # Every 30 min during the day (owner request 2026-10-21): quick sources only, instant email. STARTING VALUEs.
+  ba_published_within_days: 1   # Arbeitsagentur: published since yesterday (the daily run uses 2)
+  ba_max_pages_per_term: 2      # newest first; 200 results per term is plenty for half an hour
+  max_detail_fetches: 40

@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preview", type=Path, help="with --dry-run: write the digest HTML to this file (local use only)")
     parser.add_argument("--backlog-only", action="store_true",
                         help="only extract and rank stored postings that are still pending; no fetch, no email")
+    parser.add_argument("--fast", action="store_true",
+                        help="the fast lane: quick sources and group-A career sites, an instant email with what's new")
     parser.add_argument("--discovery-sweep", action="store_true",
                         help="one-off: check every relevant company (groups A and B) for a readable career site")
     parser.add_argument("--rerank-only", action="store_true",
@@ -104,20 +106,36 @@ def main(argv: list[str] | None = None) -> int:
         # Several scheduled starts (Supabase's cron on time, GitHub's crons as a late fallback): only the
         # first that gets to run does the work. Manual runs (Run now) always proceed.
         scheduled = os.environ.get("GITHUB_EVENT_NAME") == "schedule" or os.environ.get("SCHEDULED_RUN") == "true"
-        if db and not args.dry_run and scheduled:
+        if db and not args.dry_run and scheduled and not args.fast:
             start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             if db.has_successful_run_since(start_of_day):
                 log.info("today's run already succeeded; nothing to do")
                 _ping(suffix="")
                 return 0
-        run_id = db.start_run(dry_run=False) if db and not args.dry_run else None
-        stats, digest = run_pipeline(profile, sources_cfg, db, run_id)
+        # The fast lane and the daily run never write at the same time: a fast run skips while the daily
+        # run is going; the daily run waits (up to 10 min) for a fast run to finish.
+        if db and not args.dry_run and args.fast and db.run_in_progress("daily", 90):
+            log.info("the daily run is going; the fast lane skips this round")
+            return 0
+        if db and not args.dry_run and not args.fast:
+            for _ in range(20):
+                if not db.run_in_progress("fast", 20):
+                    break
+                time.sleep(30)
+        run_id = db.start_run(dry_run=False, kind="fast" if args.fast else "daily") if db and not args.dry_run else None
+        stats, digest = run_pipeline(profile, sources_cfg, db, run_id, fast=args.fast)
         subject, text, html = digest
         if args.dry_run:
             if args.preview:
                 args.preview.write_text(html, encoding="utf-8")
                 log.info("dry run: digest preview written")
             log.info("dry run: nothing written, nothing sent")
+        elif args.fast:
+            ids = stats.pop("_surface_ids")
+            if ids:
+                send_email(subject, text, html)
+                db.mark_notified(ids)
+            db.finish_run(run_id, "success", stats)
         else:
             send_email(subject, text, html)
             db.mark_surfaced(stats.pop("_surface_ids"), datetime.now(timezone.utc).date())
@@ -134,20 +152,30 @@ def main(argv: list[str] | None = None) -> int:
                 db.finish_run(run_id, "failed", {}, error=err[:2000])
             except Exception:  # noqa: BLE001
                 pass
-        if not args.dry_run:
+        # The fast lane retries in 30 minutes: no alert email or failed ping for it (it would flood the inbox).
+        if not args.dry_run and not args.fast:
             _alert(err, traceback.format_exc())
             _ping(suffix="/fail")
         return 1
 
 
 def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Database | None,
-                 run_id: str | None) -> tuple[dict[str, Any], tuple[str, str, str]]:
-    """Reads from db when given; writes only when run_id is given (not a dry run)."""
+                 run_id: str | None, fast: bool = False) -> tuple[dict[str, Any], tuple[str, str, str]]:
+    """Reads from db when given; writes only when run_id is given (not a dry run).
+
+    `fast` (the fast lane, every 30 min; owner request 2026-10-21): only the quick sources (Arbeitsagentur
+    published today, Arbeitnow, StepStone alerts, group-A career sites), no backlog or housekeeping, and an
+    instant email with what's new instead of the digest (none when nothing is)."""
     now = datetime.now(timezone.utc)
     stats: dict[str, Any] = {}
 
     # 1. fetch, each source isolated (spec 7.1)
     ba_cfg = sources_cfg.get("ba_api", {})
+    if fast:
+        fast_cfg = sources_cfg.get("fast_lane", {})
+        ba_cfg = {**ba_cfg, "published_within_days": int(fast_cfg.get("ba_published_within_days", 1)),
+                  "max_pages_per_term": int(fast_cfg.get("ba_max_pages_per_term", 2)),
+                  "max_detail_fetches": int(fast_cfg.get("max_detail_fetches", 40))}
     ba = BundesagenturSource(ba_cfg)
     raws: list[RawPosting] = []
     source_results: list[dict[str, Any]] = []
@@ -171,7 +199,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # its own weekday), C and agencies never; a career page added by hand is read daily.
         weekday = now.weekday()
         due = lambda c: (c.get("manually_edited") or c.get("tier") in (None, "A")  # noqa: E731
-                         or (c.get("tier") == "B" and int(hashlib.md5(c["id"].encode()).hexdigest(), 16) % 7 == weekday))
+                         or (not fast and c.get("tier") == "B" and int(hashlib.md5(c["id"].encode()).hexdigest(), 16) % 7 == weekday))
         watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named and due(c)]
     careers = CareersSource(
         watchlist, {**sources_cfg.get("careers", {}), "search_terms": profile["search_terms"],
@@ -280,7 +308,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             c.filter_reasons.append(reason)
     dealbroken = Counter(c.filter_reasons[0] for c in passed if not c.passed)
     passed = [c for c in passed if c.passed]
-    backlog = _process_backlog(enricher, db, write=bool(run_id), now=now) if db else {}
+    backlog = _process_backlog(enricher, db, write=bool(run_id), now=now) if db and not fast else {}
 
     # 6. write
     new = [c for c in candidates if c.is_new]
@@ -321,7 +349,8 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         _flush_llm(enricher, db)
         _flush_router(page_router, db, PAGE_STAGE)
         # Housekeeping after the jobs are saved: a failure here is logged and skipped, it never costs
-        # the digest (2026-10-12: one malformed company domain failed the whole run).
+        # the digest (2026-10-12: one malformed company domain failed the whole run). Not in the fast lane.
+    if run_id and db and not fast:
         if disc_cfg.get("enabled"):
             stats["discovery"] = _optional("discovery", lambda: _discover(db, candidates, disc_cfg, now))
         stats["refiltered"] = _optional("refilter", lambda: _refilter(db, profile, sources_cfg, now))
@@ -341,9 +370,15 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # Retention (spec 13): email bodies are kept for 12 months.
         stats["purged_email_bodies"] = db.purge_old_email_bodies(int(tracking.get("email_body_retention_months", 12)))
 
-    # 7. digest
+    # 7. digest (the fast lane: an instant email with what's new, nothing when nothing is)
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
+    if fast:
+        subject, text, html = build_digest([c.raw for c in surface], len(surface), now.date(), links, app_url,
+                                           extras=[c.enrichment for c in surface], instant=True)
+        stats.update({"fetched": len(raws), "new": len(new), "passed": len(passed), "alerted": len(surface),
+                      "llm_calls": enricher.router.calls, "failed_sources": failed_sources, "_surface_ids": surface_ids})
+        return stats, (subject, text, html)
     reminders = _reminders(db, now) if db else []
     warnings_list = _optional("control warnings", lambda: db.control_warnings()) if db else None
     warnings_list = warnings_list if isinstance(warnings_list, list) else []
@@ -351,9 +386,12 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     stats["outreach_reminders"] = len(reminders)
     # The count in the email matches the feed's timeline: core jobs; explore jobs get their own line.
     n_explore = sum(c.lane == "explore" for c in passed)
+    # Jobs the fast lane already sent as instant alerts (they're known by now, so not new in this run).
+    alerted = _optional("alerted count", lambda: db.notified_since(now - timedelta(hours=24))) if db else 0
+    stats["already_alerted"] = alerted if isinstance(alerted, int) else 0
     subject, text, html = build_digest([c.raw for c in surface], len(passed) - n_explore, now.date(), links, app_url,
                                        extras=[c.enrichment for c in surface], reminders=reminders,
-                                       explore=n_explore, warnings=warnings_list)
+                                       explore=n_explore, warnings=warnings_list, already_alerted=stats["already_alerted"])
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"

@@ -129,11 +129,7 @@ export default function Companies() {
           </ol>
         </section>
         <section className="card">
-          <h3>Last 14 days</h3>
-          <table className="apps mini">
-            <thead><tr><th>Day</th><th>Checked</th><th>Found</th></tr></thead>
-            <tbody>{o.history.map((h) => <tr key={h.day}><td>{day(h.day)}</td><td>{h.checked}</td><td>{h.found}</td></tr>)}</tbody>
-          </table>
+          <HistoryChart history={o.history} />
         </section>
       </div>
 
@@ -222,3 +218,77 @@ function Search({ act }: { act: (id: string, action: string, value?: Record<stri
     </section>
   );
 }
+
+/** Companies checked per day (bar height), split into found and no readable site: one stacked bar per day. */
+function HistoryChart({ history }: { history: { day: string; checked: number; found: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [asTable, setAsTable] = useState(false);
+  // Every one of the last 14 days gets a slot, oldest left; a day without checks is an empty slot.
+  const byDay = new Map(history.map((h) => [h.day.slice(0, 10), h]));
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - (13 - i));
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const h = byDay.get(key);
+    return { key, date: d, checked: h?.checked ?? 0, found: h?.found ?? 0 };
+  });
+  const peak = Math.max(10, ...days.map((d) => d.checked));
+  const max = Math.ceil(peak / 10) * 10;
+  const H = 140;
+  const px = (v: number) => (v / max) * H;
+  const label = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" });
+  const shown = hover != null ? days[hover] : null;
+
+  return (
+    <div className="disc-chart">
+      <div className="disc-chart-head">
+        <h3>Last 14 days</h3>
+        <button className="link small" onClick={() => setAsTable((t) => !t)}>{asTable ? "Show as chart" : "Show as table"}</button>
+      </div>
+      <div className="disc-legend small">
+        <span><i className="sw found" /> Found</span>
+        <span><i className="sw rest" /> No readable site</span>
+        <span className="muted">bar height = companies checked</span>
+      </div>
+      {asTable ? (
+        <table className="apps mini">
+          <thead><tr><th>Day</th><th>Checked</th><th>Found</th></tr></thead>
+          <tbody>{[...days].reverse().map((d) => <tr key={d.key}><td>{label(d.date)}</td><td>{d.checked}</td><td>{d.found}</td></tr>)}</tbody>
+        </table>
+      ) : (
+        <div className="disc-plot" style={{ height: H + 22 }} onMouseLeave={() => setHover(null)}>
+          {[0, max / 2, max].map((v) => (
+            <div key={v} className="disc-grid" style={{ bottom: 22 + px(v) }}><span>{v}</span></div>
+          ))}
+          <div className="disc-bars">
+            {days.map((d, i) => {
+              const rest = d.checked - d.found;
+              return (
+                <div key={d.key} className={`disc-col${hover === i ? " on" : ""}`} tabIndex={0} role="img"
+                     aria-label={`${label(d.date)}: ${d.checked} checked, ${d.found} found`}
+                     onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}>
+                  <div className="disc-bar" style={{ height: H }}>
+                    {rest > 0 && <div className="seg rest" style={{ height: px(rest) }} />}
+                    {d.found > 0 && <div className={`seg found${rest > 0 ? "" : " top"}`} style={{ height: px(d.found) }} />}
+                  </div>
+                  <span className="disc-x">{d.date.getDate()}</span>
+                </div>
+              );
+            })}
+          </div>
+          {shown && (
+            <div className="disc-tip" style={{
+              left: `calc(28px + (100% - 28px) * ${(hover! + 0.5) / 14})`,
+              transform: `translateX(${hover! < 2 ? "-15%" : hover! > 11 ? "-85%" : "-50%"})`,   // stays inside the card at the edges
+            }}>
+              <strong>{label(shown.date)}</strong>
+              <span>{shown.checked} checked</span>
+              <span><i className="sw found" /> {shown.found} found{shown.checked ? ` (${Math.round((100 * shown.found) / shown.checked)}%)` : ""}</span>
+              <span><i className="sw rest" /> {shown.checked - shown.found} no readable site</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

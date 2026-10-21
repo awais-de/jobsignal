@@ -633,6 +633,32 @@ ol.disc-list.numbered { list-style: decimal; padding-left: 22px; }
 .add-careers input { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; min-width: 0; flex: 1 1 180px; }
 .companies .wide-input { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
 .dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+/* Discovery history: one stacked bar per day (found | no readable site), validated pair (dataviz skill) */
+.disc-chart { --found: #2a78d6; --rest: #8e8d86; }
+@media (prefers-color-scheme: dark) { .disc-chart { --found: #3987e5; --rest: #6e6d66; } }
+.disc-chart-head { display: flex; align-items: baseline; justify-content: space-between; }
+.disc-chart-head h3 { margin: 0; }
+.disc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 10px; color: var(--text); }
+.disc-legend span, .disc-tip span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.sw.found { background: var(--found); }
+.sw.rest { background: var(--rest); }
+.disc-plot { position: relative; padding-left: 28px; }
+.disc-grid { position: absolute; left: 28px; right: 0; border-top: 1px solid var(--border); opacity: 0.6; }
+.disc-grid span { position: absolute; left: -28px; top: -7px; width: 24px; text-align: right; font-size: 10px; color: var(--muted); }
+.disc-bars { position: absolute; left: 28px; right: 0; bottom: 0; top: 0; display: flex; align-items: flex-end; }
+.disc-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; outline: none; cursor: default; }
+.disc-bar { width: min(24px, 70%); display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.disc-bar .seg { width: 100%; }
+.disc-bar .seg.found { background: var(--found); border-radius: 0; }
+.disc-bar .seg.found.top, .disc-bar .seg.rest { border-radius: 4px 4px 0 0; }
+.disc-bar .seg.rest { background: var(--rest); }
+.disc-col.on .disc-bar, .disc-col:focus-visible .disc-bar { filter: brightness(1.12); }
+.disc-col:focus-visible .disc-x { color: var(--accent); }
+.disc-x { height: 22px; line-height: 22px; font-size: 10px; color: var(--muted); }
+.disc-tip { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; gap: 2px; padding: 6px 8px;
+  font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18); pointer-events: none; white-space: nowrap; z-index: 2; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 /* Ghost check */

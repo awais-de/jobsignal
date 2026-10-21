@@ -232,3 +232,16 @@ Deno.test("rejection reasons and their sentence", async () => {
   const r = rejectionReason("Vielen Dank.\nDas deutsche Sprachniveau von mindestens C1 ist für uns\neine wesentliche Voraussetzung. Alles Gute.");
   assertEquals(r.rejection_detail, "Das deutsche Sprachniveau von mindestens C1 ist für uns eine wesentliche Voraussetzung.");
 });
+
+// 2026-10-21: a rejection in the informal "Du" form ("Leider müssen wir Dir mitteilen …") was filed as a confirmation.
+Deno.test("a 'Du' rejection with words between 'nicht weiter' and 'berücksichtigen'", () => {
+  const body = `Hallo Erika,
+vielen Dank für Deine Bewerbung auf die Stelle Junior BI Engineer (m/w/d) und das damit entgegengebrachte Interesse.
+Leider müssen wir Dir mitteilen, dass wir Dich nicht weiter im
+Bewerbungsprozess berücksichtigen können. Häufig sind es nur Nuancen, die den Ausschlag geben.
+Wir wünschen Dir für Deine Zukunft alles Gute.`;
+  assertEquals(classify("beispiel.com", "Deine Bewerbung bei Beispiel", body).category, "rejection");
+  assertEquals(classify("beispiel.com", "Deine Bewerbung bei Beispiel", body.replace(/\n/g, " ")).category, "rejection");
+  assertEquals(classify("beispiel.com", "Deine Bewerbung", "Wir haben Deine Bewerbung erhalten und melden uns bald.").category,
+               "application_confirmation");
+});

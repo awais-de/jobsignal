@@ -276,23 +276,31 @@ class Database:
                       json={"priority": 1})
 
     def companies_to_probe(self, limit: int, now: datetime) -> list[dict[str, Any]]:
+        """Group A first, then B, never C (owner decision 2026-10-21; tiers from score_companies)."""
+        tiers = "(tier.in.(A,B),tier.is.null)"
         pending = self._req("GET", "/companies", params={
             "select": "id,name", "discovery_status": "eq.pending", "is_agency": "eq.false", "deleted_at": "is.null",
-            "order": "priority.desc,relevant.desc,created_at.asc", "limit": limit})
+            "or": tiers, "order": "priority.desc,tier.asc.nullsfirst,relevance_score.desc,created_at.asc", "limit": limit})
         if len(pending) >= limit:
             return pending
         retry = self._req("GET", "/companies", params={
-            "select": "id,name", "discovery_status": "eq.not_found", "is_agency": "eq.false",
-            "next_check_at": f"lte.{now.isoformat()}", "order": "priority.desc,relevant.desc,next_check_at.asc",
-            "limit": limit - len(pending)})
+            "select": "id,name", "discovery_status": "eq.not_found", "is_agency": "eq.false", "deleted_at": "is.null",
+            "or": tiers, "next_check_at": f"lte.{now.isoformat()}",
+            "order": "priority.desc,tier.asc.nullsfirst,relevance_score.desc,next_check_at.asc", "limit": limit - len(pending)})
         return pending + retry
+
+    def score_companies(self) -> dict[str, int]:
+        return self._req("POST", "/rpc/score_companies", json={}) or {}
+
+    def mark_agencies(self, names: list[str]) -> int:
+        return int(self._req("POST", "/rpc/mark_agencies", json={"names": names}) or 0) if names else 0
 
     def update_company(self, company_id: str, fields: dict[str, Any]) -> None:
         self._req("PATCH", "/companies", params={"id": f"eq.{company_id}"}, json=fields)
 
     def watched_companies(self) -> list[dict[str, Any]]:
         return self._req("GET", "/companies", params={
-            "select": "id,name,ats,ats_token,filter_mode,careers_url", "watch": "eq.true", "discovery_status": "eq.found",
+            "select": "id,name,ats,ats_token,filter_mode,careers_url,tier,manually_edited", "watch": "eq.true", "discovery_status": "eq.found",
             "deleted_at": "is.null"})
 
     # -- tracking ---------------------------------------------------------------

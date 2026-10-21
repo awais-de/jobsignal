@@ -11,11 +11,14 @@ or email text.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import sys
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -57,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preview", type=Path, help="with --dry-run: write the digest HTML to this file (local use only)")
     parser.add_argument("--backlog-only", action="store_true",
                         help="only extract and rank stored postings that are still pending; no fetch, no email")
+    parser.add_argument("--discovery-sweep", action="store_true",
+                        help="one-off: check every relevant company (groups A and B) for a readable career site")
     parser.add_argument("--rerank-only", action="store_true",
                         help="only re-rank stored jobs after a profile change; no fetch, no email")
     args = parser.parse_args(argv)
@@ -72,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", exc)
         return 1
 
+    if args.discovery_sweep:
+        return discovery_sweep()
     if args.rerank_only:
         db = Database.from_env()
         if db is None:
@@ -160,7 +167,12 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     disc_cfg = sources_cfg.get("discovery", {})
     if db and disc_cfg.get("enabled"):
         named = {w["name"].lower() for w in watchlist}
-        watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named]
+        # By relevance group (owner decision 2026-10-21): A (and new, not yet grouped) daily, B weekly (each on
+        # its own weekday), C and agencies never; a career page added by hand is read daily.
+        weekday = now.weekday()
+        due = lambda c: (c.get("manually_edited") or c.get("tier") in (None, "A")  # noqa: E731
+                         or (c.get("tier") == "B" and int(hashlib.md5(c["id"].encode()).hexdigest(), 16) % 7 == weekday))
+        watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named and due(c)]
     careers = CareersSource(
         watchlist, {**sources_cfg.get("careers", {}), "search_terms": profile["search_terms"],
                     "title_allow": profile["titles"].get("allow", [])},
@@ -175,18 +187,29 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # Company names are private: the public log only says 'careers#N'.
         fetchers.append((f"careers:{company['name']}", f"careers#{i}", lambda c=company: careers.fetch_company(c)))
 
-    for source, label, fetch in fetchers:
+    def run_fetch(item: tuple[str, str, Any]) -> tuple[list[RawPosting], dict[str, Any], str | None]:
+        source, label, fetch = item
         t0 = time.monotonic()
         try:
             got = fetch()
-            raws.extend(got)
-            source_results.append({"source": source, "status": "success" if got else "empty",
-                                   "fetched": len(got), "error": None, "ms": _ms(t0)})
+            return got, {"source": source, "status": "success" if got else "empty", "fetched": len(got),
+                         "error": None, "ms": _ms(t0)}, None
         except Exception as exc:  # noqa: BLE001
-            failed_sources.append(label)
-            source_results.append({"source": source, "status": "failed", "fetched": 0,
-                                   "error": type(exc).__name__, "ms": _ms(t0)})
             log.warning("source %s failed: %s", label, type(exc).__name__)
+            return [], {"source": source, "status": "failed", "fetched": 0, "error": type(exc).__name__, "ms": _ms(t0)}, label
+
+    # Career sites are many and slow (~4 s each): fetched 8 at a time; the rest in order. Results keep the
+    # fetchers' order, so the run is deterministic.
+    careers_items = [f for f in fetchers if f[0].startswith("careers:")]
+    other_items = [f for f in fetchers if not f[0].startswith("careers:")]
+    results = [run_fetch(f) for f in other_items]
+    with ThreadPoolExecutor(max_workers=int(sources_cfg.get("careers", {}).get("parallel", 8))) as pool:
+        results += list(pool.map(run_fetch, careers_items))
+    for got, result, failed in results:
+        raws.extend(got)
+        source_results.append(result)
+        if failed:
+            failed_sources.append(failed)
 
     # Alert emails don't say who posts: recruiters from the agency list are marked (ghost signal, badge).
     agencies = [x.lower() for x in (sources_cfg.get("discovery") or {}).get("agencies", [])]
@@ -564,29 +587,70 @@ def _discover(db: Database, candidates: list[Candidate], cfg: dict[str, Any], no
     db.prioritise_companies([normalize_company(c.raw.company_name) for c in candidates
                              if c.is_new and c.passed and c.raw.source.startswith("alert") and not c.raw.description])
 
+    # Relevance groups first (owner decision 2026-10-21): only groups A and B are probed.
+    db.mark_agencies(agencies)
+    counts.update({f"tier_changed_{k}": v for k, v in (db.score_companies() or {}).items()})
+    comps = db.companies_to_probe(int(cfg.get("companies_per_run", 20)), now)
+    counts.update(_probe_companies(db, comps, cfg, float(cfg.get("max_seconds_per_run", 300)),
+                                   int(cfg.get("parallel", 4))))
+    return dict(counts)
+
+
+def _probe_companies(db: Database, comps: list[dict[str, Any]], cfg: dict[str, Any], seconds: float,
+                     workers: int) -> Counter[str]:
+    """Probes companies for a readable career site, `workers` at a time, until `seconds` have passed."""
+    counts: Counter[str] = Counter()
+    lock = threading.Lock()
     api = ATS(httpx.Client(headers={"User-Agent": "jobsignal/0.1 (personal job search)"}, timeout=6,
-                           follow_redirects=True))
-    deadline = time.monotonic() + float(cfg.get("max_seconds_per_run", 300))
-    for comp in db.companies_to_probe(int(cfg.get("companies_per_run", 20)), now):
+                           follow_redirects=True, limits=httpx.Limits(max_connections=workers * 12)))
+    deadline = time.monotonic() + seconds
+    retry_days = int(cfg.get("retry_not_found_days", 30))
+
+    def probe(comp: dict[str, Any]) -> None:
         if time.monotonic() > deadline:
-            break
+            with lock:
+                counts["left_for_later"] += 1
+            return
+        now = datetime.now(timezone.utc)
         try:
             found = probe_company(comp["name"], api)
         except Exception:  # noqa: BLE001 - one odd company must not stop discovery (or the run)
             found = None
-            counts["errors"] += 1
+            with lock:
+                counts["errors"] += 1
         if found:
             db.update_company(comp["id"], {
                 "discovery_status": "found", "ats": found.ats, "ats_token": found.token,
                 "verified_name": found.verified_name, "careers_url": found.careers_url,
                 "feed_type": "jsonld" if found.ats in ("jsonld", "sitemap") else "ats_feed",
                 "watch": True, "discovery_checked_at": now.isoformat(), "notes": f"found via {found.via}"})
-            counts[f"found_via_{found.via}"] += 1
+            key = f"found_via_{found.via}"
         else:
             db.update_company(comp["id"], {"discovery_status": "not_found", "discovery_checked_at": now.isoformat(),
-                                           "next_check_at": (now + timedelta(days=int(cfg.get("retry_not_found_days", 30)))).isoformat()})
-            counts["not_found"] += 1
-    return dict(counts)
+                                           "next_check_at": (now + timedelta(days=retry_days)).isoformat()})
+            key = "not_found"
+        with lock:
+            counts[key] += 1
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(probe, comps))
+    return counts
+
+
+def discovery_sweep(minutes: float = 45, workers: int = 8) -> int:
+    """One-off: probe every group A and B company not checked yet (owner request 2026-10-21)."""
+    db = Database.from_env()
+    if db is None:
+        log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set.")
+        return 1
+    cfg = load_sources().get("discovery", {})
+    db.mark_agencies([a.lower() for a in cfg.get("agencies", [])])
+    log.info("tiers changed: %s", db.score_companies())
+    comps = db.companies_to_probe(5000, datetime.now(timezone.utc))
+    log.info("sweep: %d companies to check, %d at a time", len(comps), workers)
+    counts = _probe_companies(db, comps, cfg, minutes * 60, workers)
+    log.info("sweep done: %s", dict(counts))
+    return 0
 
 
 def _flush_llm(enricher: Enricher, db: Database) -> None:

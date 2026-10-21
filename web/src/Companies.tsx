@@ -14,13 +14,24 @@ type Found = {
 };
 type Overview = {
   run: { started_at: string; finished_at: string | null; status: string } | null;
-  counts: Record<string, number>; watched: number; queue_prioritised: number; retry_due: number;
+  counts: Record<string, number>; watched: number; queue_prioritised: number; retry_due: number; queue_relevant: number;
+  tiers: Record<string, number>; tier_status: Record<string, Record<string, number>>; focus: Focus[];
   checked: Checked[]; history: { day: string; checked: number; found: number }[];
   queue: { id: string; name: string; prioritised: boolean; relevant: boolean; discovered_from: string | null }[];
   alert_not_found: { id: string; name: string; checked_at: string | null }[];
   found: Found[];
 };
-type Company = { id: string; name: string; discovery_status: string; ats: string | null; careers_url: string | null; watch: boolean; is_agency: boolean; priority: number };
+type Company = { id: string; name: string; discovery_status: string; ats: string | null; careers_url: string | null; watch: boolean; is_agency: boolean; priority: number; tier: string | null };
+type Focus = {
+  id: string; name: string; score: number; status: string; ats: string | null; careers_url: string | null; watch: boolean; manually_edited: boolean;
+  relevance: { applied: number; passed_core: number; core_jobs: number; explore_jobs: number; alert_jobs: number; contacts: number; jobs: number; last_relevant: string | null } | null;
+};
+const TIER_TEXT: Record<string, string> = {
+  A: "Focus: applied there, a job passed your filters, or 2+ jobs in your core directions. Career site read daily.",
+  B: "Worth watching: one core-direction job, Explore-direction jobs, or a contact there. Read weekly.",
+  C: "Not relevant: never posted in your directions. Never checked; moves up by itself if it does.",
+  agency: "Staffing firms: never checked or watched.",
+};
 
 const ATS_LABEL: Record<string, string> = {
   personio: "Personio", greenhouse: "Greenhouse", lever: "Lever", recruitee: "Recruitee", ashby: "Ashby", smartrecruiters: "SmartRecruiters",
@@ -59,7 +70,7 @@ export default function Companies() {
 
   if (!o) return <p className="empty">{error ?? "Loading…"}</p>;
   const c = o.counts ?? {};
-  const pending = c.pending ?? 0;
+  const pending = o.queue_relevant ?? 0;
   const week = o.history.filter((h) => new Date(h.day) > new Date(Date.now() - 7 * 86400000));
   const checked7 = week.reduce((n, h) => n + h.checked, 0), found7 = week.reduce((n, h) => n + h.found, 0);
   const lastFound = o.checked.filter((x) => x.status === "found").length;
@@ -83,7 +94,7 @@ export default function Companies() {
         </p>
         <div className="dash-tiles">
           <Tile v={o.watched} label="Career sites watched" hint={`${c.found ?? 0} found in total`} />
-          <Tile v={pending} label="Waiting to be checked" hint={`≈${Math.ceil(pending / PER_RUN)} days · ${o.queue_prioritised} first in line`} />
+          <Tile v={pending} label="Relevant, still to check" hint={`groups A and B · ${(o.tiers?.C ?? 0).toLocaleString("en-GB")} not relevant, never checked`} />
           <Tile v={c.not_found ?? 0} label="No readable site" hint={`${o.retry_due} due for a retry`} />
           <Tile v={checked7 ? Math.round((100 * found7) / checked7) : 0} label="Hit rate, 7 days (%)" hint={`${found7} of ${checked7} checked`} />
         </div>
@@ -106,6 +117,24 @@ export default function Companies() {
           </ul>
         )}
       </section>
+
+      <section className="card">
+        <h3>Relevance groups <span className="muted small">· every company sorted by what it posted in Germany, re-sorted daily</span></h3>
+        <div className="tier-grid">
+          {(["A", "B", "C", "agency"] as const).map((t) => {
+            const st = o.tier_status?.[t] ?? {};
+            return (
+              <div key={t} className={`tier-box tier-${t}`}>
+                <div><strong>{t === "agency" ? "Agencies" : `Group ${t}`}</strong> <span className="dash-value-sm">{(o.tiers?.[t] ?? 0).toLocaleString("en-GB")}</span></div>
+                <p className="muted small">{TIER_TEXT[t]}</p>
+                {t !== "agency" && <p className="small">{st.found ?? 0} with a readable site · {st.not_found ?? 0} none · {st.pending ?? 0} unchecked</p>}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <FocusList focus={o.focus ?? []} act={act} />
 
       <section className="card">
         <h3>StepStone employers without a readable site <span className="muted small">· {o.alert_not_found.length}</span></h3>
@@ -189,8 +218,8 @@ function Search({ act }: { act: (id: string, action: string, value?: Record<stri
   useEffect(() => {
     if (q.trim().length < 2) { setRows([]); return; }
     const t = setTimeout(async () => {
-      const { data } = await supabase.from("companies").select("id,name,discovery_status,ats,careers_url,watch,is_agency,priority")
-        .is("deleted_at", null).ilike("name", `%${q.trim()}%`).order("name").limit(20);
+      const { data } = await supabase.from("companies").select("id,name,discovery_status,ats,careers_url,watch,is_agency,priority,tier")
+        .is("deleted_at", null).ilike("name", `%${q.trim()}%`).order("relevance_score", { ascending: false }).limit(20);
       setRows((data ?? []) as Company[]);
     }, 250);
     return () => clearTimeout(t);
@@ -205,6 +234,7 @@ function Search({ act }: { act: (id: string, action: string, value?: Record<stri
         {rows.map((r) => (
           <li key={r.id}>
             <span className="disc-name">{r.name}</span>
+            {r.tier && r.tier !== "agency" && <span className={`badge tier-badge tier-${r.tier}`}>{r.tier}</span>}
             <span className="muted small">{label(r)}</span>
             <span className="mcv-tools">
               {r.discovery_status === "pending" && r.priority === 0 && !r.is_agency && <button className="link small" onClick={() => act(r.id, "prioritise", undefined, `${r.name} moves to the front`)}>move to front</button>}
@@ -289,6 +319,55 @@ function HistoryChart({ history }: { history: { day: string; checked: number; fo
         </div>
       )}
     </div>
+  );
+}
+
+/** Group A, ranked: the companies to focus the search on. */
+function FocusList({ focus, act }: { focus: Focus[]; act: (id: string, action: string, value?: Record<string, string>, done?: string) => void }) {
+  const [filter, setFilter] = useState<"all" | "watched" | "none" | "unchecked">("all");
+  const [showAll, setShowAll] = useState(false);
+  const is = (f: Focus) => (f.status === "found" ? "watched" : f.status === "not_found" ? "none" : "unchecked");
+  const rows = focus.filter((f) => filter === "all" || is(f) === filter);
+  const shown = showAll ? rows : rows.slice(0, 40);
+  const count = (k: string) => focus.filter((f) => is(f) === k).length;
+  return (
+    <section className="card">
+      <h3>Your focus companies <span className="muted small">· group A, {focus.length}, ranked by relevance</span></h3>
+      <p className="muted small">Score: 10 per application, 5 per job that passed your filters, 3 per core-direction job (up to 10), 2 per StepStone alert job,
+        1 per Explore job, 3 if you have a contact there.</p>
+      <div className="tabs">
+        {([["all", `All ${focus.length}`], ["watched", `Career site read ${count("watched")}`], ["none", `No readable site ${count("none")}`], ["unchecked", `Unchecked ${count("unchecked")}`]] as const).map(([k, l]) => (
+          <button key={k} className={filter === k ? "active" : ""} onClick={() => setFilter(k)}>{l}</button>
+        ))}
+      </div>
+      <div className="table-wrap">
+        <table className="apps">
+          <thead><tr><th>#</th><th>Company</th><th title="Relevance score">Score</th><th title="Jobs in your core directions (Germany)">Core jobs</th><th title="Passed your filters">Passed</th><th>Applied</th><th>Contacts</th><th>Career site</th></tr></thead>
+          <tbody>
+            {shown.map((f, i) => {
+              const r = f.relevance;
+              return (
+                <tr key={f.id}>
+                  <td className="muted">{i + 1}</td>
+                  <td className="strong">{f.careers_url ? <a href={f.careers_url} target="_blank" rel="noreferrer">{f.name}</a> : f.name}</td>
+                  <td>{f.score}</td>
+                  <td>{r?.core_jobs ?? 0}</td>
+                  <td>{r?.passed_core ?? 0}</td>
+                  <td>{r?.applied ? <span className="badge">applied {r.applied}</span> : <span className="muted">–</span>}</td>
+                  <td>{r?.contacts ? <a href="#people" title="Your LinkedIn contacts there (People)">{r.contacts}</a> : <span className="muted">–</span>}</td>
+                  <td className="small">
+                    {f.status === "found" ? <span className="status status-green">{atsLabel(f.ats)}{f.watch ? "" : " · off"}</span>
+                      : f.status === "not_found" ? <><span className="muted">none readable</span> <AddCareers onAdd={(url, pattern) => act(f.id, "careers", { url, pattern }, `${f.name}: career page added`)} /></>
+                      : <span className="muted">to check</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > 40 && <button className="link small" onClick={() => setShowAll((x) => !x)}>{showAll ? "Show the top 40" : `Show all ${rows.length}`}</button>}
+    </section>
   );
 }
 

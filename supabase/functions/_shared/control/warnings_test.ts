@@ -1,6 +1,6 @@
 // Run: deno test supabase/functions/
 import { assertEquals } from "jsr:@std/assert@1.0.13";
-import { EXPECTED_BRIDGE_VERSION, type Status, warnings } from "./warnings.ts";
+import { berlin, EXPECTED_BRIDGE_VERSION, type Status, warnings } from "./warnings.ts";
 
 const NOW = new Date("2026-10-14T09:00:00Z");
 function ok(): Status {
@@ -41,7 +41,7 @@ Deno.test("missing daily run, failing source, scheduler, token, bridge, AI, limi
   assertEquals(w.some((x) => x.text.includes("Company site: Beispiel AG")), true);
 });
 
-Deno.test("before 07:30 UTC a missing run is not yet a warning", () => {
+Deno.test("before 07:30 German time a missing run is not yet a warning", () => {
   const s = ok();
   s.db.runs = [];
   s.db.cron = [];
@@ -61,4 +61,20 @@ Deno.test("a workflow failure already followed by a success is not a warning", (
   assertEquals(warnings(s, NOW), []);
   s.github.workflows = [{ name: "cv-compile", status: "completed", conclusion: "failure", created_at: "2026-10-13T18:44:00Z", url: "" }];
   assertEquals(warnings(s, NOW).map((x) => x.area), ["GitHub"]);
+});
+
+Deno.test("the Berlin clock across the clock change", () => {
+  assertEquals(berlin(new Date("2026-10-21T05:17:00Z")), { day: "2026-10-21", minutes: 7 * 60 + 17 });   // CEST
+  assertEquals(berlin(new Date("2026-10-27T06:17:00Z")), { day: "2026-10-27", minutes: 7 * 60 + 17 });   // CET
+  assertEquals(berlin(new Date("2026-10-21T22:30:00Z")).day, "2026-10-22");
+});
+
+Deno.test("the fast lane is warned about only after 3 failures in a row, and never counts as the daily run", () => {
+  const s = ok();
+  s.db.fast_runs = [{ started_at: "2026-10-14T08:30:00Z", status: "failed", error: "ReadTimeout" },
+                    { started_at: "2026-10-14T08:00:00Z", status: "failed", error: "ReadTimeout" },
+                    { started_at: "2026-10-14T07:30:00Z", status: "failed", error: "ReadTimeout" }];
+  assertEquals(warnings(s, NOW).map((x) => x.area), ["Fast lane"]);
+  s.db.fast_runs[2].status = "success";
+  assertEquals(warnings(s, NOW), []);
 });

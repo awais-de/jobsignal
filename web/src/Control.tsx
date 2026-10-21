@@ -19,6 +19,12 @@ const ago = (iso: string | null | undefined) => {
 const when = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
 
+// The scheduler counts in UTC; each job is guarded to its German time (migration ..._berlin_schedule.sql).
+const CRON_BERLIN: Record<string, string> = {
+  "jobsignal-control-snapshot": "daily 07:07", "jobsignal-daily": "daily 07:17",
+  "jobsignal-fast": "every 30 min, 07:00–22:30", "jobsignal-slim": "daily 06:40",
+};
+
 export default function Control() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -94,10 +100,10 @@ export default function Control() {
         </Card>
 
         <Card title="Scheduler (Supabase)" warn={area("Scheduler")}>
-          {(s.db.cron_jobs ?? []).map((j: any) => <Kv key={j.name} k={j.name.replace("jobsignal-", "")} v={`${j.schedule} UTC ${j.active ? "" : "(paused)"}`} />)}  {/* eslint-disable-line @typescript-eslint/no-explicit-any */}
+          {(s.db.cron_jobs ?? []).map((j: any) => <Kv key={j.name} k={j.name.replace("jobsignal-", "")} v={`${CRON_BERLIN[j.name] ?? `${j.schedule} UTC`}${j.active ? "" : " (paused)"}`} />)}  {/* eslint-disable-line @typescript-eslint/no-explicit-any */}
           <Kv k="Last starts" v={(s.db.cron ?? []).slice(0, 3).map((c: any) => `${c.jobname.replace("jobsignal-", "")} ${when(c.start_time)} ${c.status}`).join(" · ") || "none yet"} />  {/* eslint-disable-line @typescript-eslint/no-explicit-any */}
           <Kv k="Last call to GitHub" v={s.db.http?.[0] ? `HTTP ${s.db.http[0].status_code ?? "?"} · ${when(s.db.http[0].created)}` : "none in the last hours"} />
-          <p className="muted small">GitHub's own schedules (05:17, 06:47, 08:17 UTC) stay as a late fallback; the first start of the day does the work.</p>
+          <p className="muted small">All times are German time, also across clock changes. GitHub's own schedules (later in the morning) stay as a late fallback; the first start of the day does the work.</p>
         </Card>
 
         <Card title="GitHub" warn={area("GitHub")}>

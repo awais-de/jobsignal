@@ -2,10 +2,10 @@ name: daily-pipeline
 
 on:
   schedule:
-    # The on-time start is Supabase's scheduler (migration ..._daily_cron.sql: 05:17 UTC, workflow_dispatch
-    # with scheduled=true). GitHub can delay or drop scheduled runs by hours, so these stay as a fallback;
-    # whichever scheduled start comes first does the work, the others exit early (pipeline/run.py).
-    - cron: '17 5 * * *'
+    # The on-time start is Supabase's scheduler at 07:17 German time (migration ..._berlin_schedule.sql,
+    # workflow_dispatch with scheduled=true). GitHub can delay or drop scheduled runs by hours, so these stay as a
+    # fallback; GitHub counts in UTC, so both are after 07:17 German time in summer and winter. Whichever scheduled
+    # start comes first does the work, the others exit early (pipeline/run.py).
     - cron: '47 6 * * *'
     - cron: '17 8 * * *'
   workflow_dispatch:

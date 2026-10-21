@@ -19,7 +19,8 @@ export type Status = {
     storage: { bucket: string; files: number; bytes: number }[];
     cron: { jobname: string; status: string; start_time: string; message: string | null }[];
     http: { status_code: number | null; created: string; error: string }[];
-    runs: { started_at: string; finished_at: string | null; status: string; error: string }[];
+    runs: { started_at: string; finished_at: string | null; status: string; error: string }[];   // daily runs
+    fast_runs?: { started_at: string; status: string; error: string }[];
     sources: { source: string; failed: number; runs: number; last_ok: string | null; last3: string[] }[];
     inbox: { last_at: string | null; total: number; unmatched: number; bridge_version: string | null };
     backlog: { core: number; explore: number };
@@ -34,29 +35,39 @@ export type Status = {
 };
 
 const hoursSince = (iso: string | null | undefined, now: Date) => (iso ? (now.getTime() - new Date(iso).getTime()) / 3600_000 : Infinity);
-const utcDay = (d: Date) => d.toISOString().slice(0, 10);
+/** Day ('YYYY-MM-DD') and minutes since midnight on the Berlin clock: the schedule is in German time. */
+export function berlin(d: Date): { day: string; minutes: number } {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(d).map((x) => [x.type, x.value]));
+  return { day: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) };
+}
 
 export function warnings(s: Status, now = new Date()): Warning[] {
   const w: Warning[] = [];
   const add = (level: Level, area: string, text: string) => w.push({ level, area, text });
-  const today = utcDay(now);
-  const minutesUtc = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const { day: today, minutes } = berlin(now);
 
-  // Pipeline: today's run (after 07:30 UTC there should be one), and the last run's result.
+  // Pipeline: today's daily run (starts 07:17 German time; by 09:30 it should have succeeded), the last daily run's
+  // result, and the fast lane only when its last 3 runs failed.
   const runs = s.db.runs ?? [];
-  if (minutesUtc > 7 * 60 + 30 && !runs.some((r) => r.status === "success" && r.started_at.slice(0, 10) === today)) {
+  if (minutes > 9 * 60 + 30 && !runs.some((r) => r.status === "success" && berlin(new Date(r.started_at)).day === today)) {
     add("red", "Pipeline", "No successful daily run today.");
   }
   if (runs[0]?.status === "failed") add("red", "Pipeline", `The last run failed: ${runs[0].error || "no error message"}.`);
+  const fast = s.db.fast_runs ?? [];
+  if (fast.length >= 3 && fast.slice(0, 3).every((r) => r.status === "failed")) {
+    add("amber", "Fast lane", `The last 3 fast-lane runs failed: ${fast[0].error || "no error message"}.`);
+  }
   for (const src of s.db.sources ?? []) {
     if (src.last3?.length === 3 && src.last3.every((x) => x === "failed")) {
       add("amber", "Sources", `${src.source.replace(/^careers:/, "Company site: ")} failed its last 3 runs.`);
     }
   }
 
-  // Supabase scheduler: did the 05:17 start happen today, and did GitHub accept it?
-  const daily = (s.db.cron ?? []).filter((c) => c.jobname === "jobsignal-daily" && c.start_time.slice(0, 10) === today);
-  if (minutesUtc > 5 * 60 + 30 && !daily.length) add("amber", "Scheduler", "Supabase's scheduler didn't start today's run (GitHub's fallback may start it late).");
+  // Supabase scheduler: did the 07:17 start happen today, and did GitHub accept it? (The daily job is scheduled for
+  // both UTC hours it can fall on; the one on the wrong side of the clock change does nothing and still succeeds.)
+  const daily = (s.db.cron ?? []).filter((c) => c.jobname === "jobsignal-daily" && berlin(new Date(c.start_time)).day === today);
+  if (minutes > 7 * 60 + 30 && !daily.length) add("amber", "Scheduler", "Supabase's scheduler didn't start today's run (GitHub's fallback may start it late).");
   if (daily[0] && daily[0].status !== "succeeded") add("amber", "Scheduler", `Today's scheduled start failed: ${daily[0].message ?? daily[0].status}.`);
   const http = (s.db.http ?? [])[0];
   if (http && http.status_code !== null && http.status_code >= 300 && hoursSince(http.created, now) < 24) {

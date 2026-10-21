@@ -26,7 +26,38 @@ export type Extracted = {
   reference_number: string | null;
   interview_at: string | null;        // ISO local datetime 'YYYY-MM-DDTHH:MM' when a date and time are given
   ats: string | null;
+  rejection_reason?: string;        // rejections only: a category (see rejectionReason)
+  rejection_detail?: string | null; // the sentence that gives it
 };
+
+// Why an application was declined (owner request 2026-10-21). Most specific first: a rejection letter often
+// thanks, mentions other candidates and gives the real reason in one sentence.
+const REJECTION_REASONS: [string, RegExp][] = [
+  ["position_filled", /(stelle (wurde |ist )?(bereits |inzwischen |zwischenzeitlich )?(anderweitig |intern )?(besetzt|vergeben)|position (has been|was|is) (already )?(filled|closed)|role (has been|was) (filled|closed)|ausschreibung (wurde )?(zurückgezogen|gestoppt|beendet)|no longer (open|available|hiring)|nicht (mehr )?zu besetzen|besetzung (der stelle )?(wurde )?(gestoppt|zurückgestellt)|stelle (wird )?nicht (mehr )?(nach)?besetzt)/i],
+  ["german_language", /((deutsch|german)\w*[^.!?\n]{0,80}(sprachniveau|sprachkenntnisse|niveau|level|c1|c2|b2|muttersprach|verhandlungssicher|fließend|fluent)|(sprachniveau|sprachkenntnisse|deutschkenntnisse)[^.!?\n]{0,80}(c1|c2|voraussetzung|erforderlich|nicht ausreichend|required)|german (language )?(skills|proficiency)|deutschkenntnisse)/i],
+  ["overqualified", /(überqualifiziert|overqualified|zu (hoch|stark) qualifiziert)/i],
+  ["experience", /((berufs)?erfahrung[^.!?\n]{0,60}(nicht ausreich|fehlt|zu gering|mehr|umfangreicher|tiefer|einschlägig)|(more|additional|relevant|sufficient|enough) (hands-on |professional )?experience|years of experience|mehr (berufs)?erfahrung|erfahrener(e|en)? (kandidat|bewerber))/i],
+  ["location_permit", /(arbeitserlaubnis|aufenthaltstitel|work permit|visa sponsorship|visum|right to work|vor[- ]ort[^.!?\n]{0,40}(präsenz|anwesenheit|erforderlich)|wohnort|relocation)/i],
+  ["salary", /(gehaltsvorstellung|gehaltsvorstellungen|salary expectation|compensation expectation|budget)/i],
+  ["profile_fit", /((ihr |dein )?profil[^.!?\n]{0,60}(nicht|weniger|kaum)[^.!?\n]{0,40}(passt|entspricht|überein|deckt)|anforderungsprofil|(qualifikation|kenntnisse)[^.!?\n]{0,60}(nicht|weniger)[^.!?\n]{0,30}(entspr|überein|pass)|not (be )?(a|the) (right |best |strong )?(fit|match)|closer (match|fit)|(better|more closely) match(es)? (our|the) (requirements|needs))/i],
+  ["other_candidates", /(andere[nr]? (kandidat|bewerber)|anderen (bewerber|kandidat)\w* den vorzug|für (eine|einen) andere(n)? (kandidat|bewerber)|other candidates|another candidate|decided to (move forward|proceed|go ahead) with (other|another))/i],
+];
+
+/** The reason a rejection gives, and its sentence; 'not_given' when it gives none. */
+export function rejectionReason(body: string): { rejection_reason: string; rejection_detail: string | null } {
+  const flat = body.slice(0, 8000).replace(/[ \t]*\r?\n[ \t]*/g, " ").replace(/\s+/g, " ");
+  for (const [reason, re] of REJECTION_REASONS) {
+    const m = re.exec(flat);
+    if (!m) continue;
+    // The sentence around the match (with the one before when the match opens its sentence: "… C1 ist
+    // Voraussetzung. Bedauerlicherweise …" keeps the reason).
+    const start = Math.max(flat.lastIndexOf(". ", m.index) + 2, flat.lastIndexOf("! ", m.index) + 2, 0);
+    const endDot = flat.slice(m.index).search(/[.!?](\s|$)/);
+    const end = endDot < 0 ? Math.min(flat.length, m.index + 200) : m.index + endDot + 1;
+    return { rejection_reason: reason, rejection_detail: flat.slice(start, end).trim().slice(0, 300) };
+  }
+  return { rejection_reason: "not_given", rejection_detail: null };
+}
 
 /**
  * A forwarded email ('Fwd:', 'WG:') would otherwise look like it came from the owner. Returns the

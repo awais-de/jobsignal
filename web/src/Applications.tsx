@@ -34,6 +34,10 @@ type App = {
   jd_snapshot: string | null;
   resume_id: string | null;
   cover_letter_file_id: string | null;
+  // What the application claimed and why it was declined (owner request 2026-10-21).
+  claimed_german: string | null;
+  rejection_reason: string | null;
+  rejection_detail: string | null;
   job_postings: {
     title: string;
     company_name: string;
@@ -115,12 +119,15 @@ export default function Applications() {
   const [scheduling, setScheduling] = useState<{ appId: string; type: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pings, setPings] = useState<Ping[]>([]);
+  // Skills claimed per job: the job page's "For this job" levels (job_skill_levels).
+  const [claims, setClaims] = useState<Map<string, Claim[]>>(new Map());
   const resumeById = useMemo(() => new Map(resumes.map((r) => [r.id, r])), [resumes]);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from("applications")
       .select("id,job_posting_id,applied_at,created_at,notes,jd_snapshot,resume_id,cover_letter_file_id," +
+              "claimed_german,rejection_reason,rejection_detail," +
               "job_postings(title,company_name,city,source,apply_url,source_url,posted_date)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -144,6 +151,16 @@ export default function Applications() {
         .in("job_posting_id", list.map((a) => a.job_posting_id));   // pings before applying count too
       if (pg.error) setError(pg.error.message);
       else setPings(pg.data as unknown as Ping[]);
+      const cl = await supabase.from("job_skill_levels").select("job_posting_id,presented,skills(name)")
+        .in("job_posting_id", list.map((a) => a.job_posting_id));
+      if (!cl.error) {
+        const m = new Map<string, Claim[]>();
+        for (const r of cl.data as unknown as { job_posting_id: string; presented: number; skills: { name: string } | null }[]) {
+          if (r.skills) m.set(r.job_posting_id, [...(m.get(r.job_posting_id) ?? []), { name: r.skills.name, level: r.presented }]);
+        }
+        for (const v of m.values()) v.sort((a, b) => b.level - a.level || a.name.localeCompare(b.name));
+        setClaims(m);
+      }
     }
   }, []);
 
@@ -250,7 +267,8 @@ export default function Applications() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  async function patch(app: App, fields: Partial<Pick<App, "resume_id" | "cover_letter_file_id" | "jd_snapshot">>) {
+  async function patch(app: App, fields: Partial<Pick<App, "resume_id" | "cover_letter_file_id" | "jd_snapshot" |
+                                                    "claimed_german" | "rejection_reason" | "rejection_detail">>) {
     const { error } = await supabase.from("applications").update(fields).eq("id", app.id);
     if (error) return setError(error.message);
     setApps((as) => as && as.map((a) => (a.id === app.id ? { ...a, ...fields } : a)));
@@ -343,8 +361,10 @@ export default function Applications() {
               <th>Role</th>
               <th>Location</th>
               <th>Status</th>
+              <th title="Why the employer declined">Rejection reason</th>
               <th>Applied</th>
               <th>Last update</th>
+              <th title="German level and skill levels the application stated">Claimed</th>
               <th>Resume</th>
               <th>JD</th>
               <th>Outreach</th>
@@ -374,8 +394,14 @@ export default function Applications() {
                         {EVENT_LABELS[st?.event_type ?? "drafted"]}
                       </span>
                     </td>
+                    <td>
+                      {a.rejection_reason
+                        ? <span className="reason" title={a.rejection_detail ?? undefined}>{REJECTION_LABELS[a.rejection_reason] ?? a.rejection_reason}</span>
+                        : st?.event_type === "rejected" ? <span className="muted small">not recorded</span> : <span className="muted">–</span>}
+                    </td>
                     <td className="muted">{a.applied_at ? fmt(a.applied_at) : "–"}</td>
                     <td className="muted">{last ? ago(last.occurred_at) : "–"}</td>
+                    <td><ClaimCell german={a.claimed_german} skills={claims.get(a.job_posting_id) ?? []} /></td>
                     <td>
                       <ResumeLink r={a.resume_id ? resumeById.get(a.resume_id) : undefined} />
                       {a.cover_letter_file_id && <span className="badge" title="Cover letter sent">+CL</span>}
@@ -409,7 +435,7 @@ export default function Applications() {
                   </tr>
                   {isOpen && (
                     <tr className="detail">
-                      <td colSpan={12}>
+                      <td colSpan={14}>
                         <Detail app={a} events={byApp.get(a.id) ?? []} onNotes={(n) => saveNotes(a, n)}
                                 onJd={(jd) => patch(a, { jd_snapshot: jd })} onEventDate={(e, iso) => editEvent(e, { occurred_at: iso })}
                                 onInterview={(e, f) => editEvent(e, f)}
@@ -419,6 +445,8 @@ export default function Applications() {
                             <InterviewForm type={scheduling.type} onCancel={() => setScheduling(null)}
                               onSave={(f) => { setScheduling(null); addEvent(a, scheduling.type, { ...f, event_type: scheduling.type }); }} />
                           )}
+                          <Claims app={a} skills={claims.get(a.job_posting_id) ?? []}
+                                  onSave={(f) => patch(a, f)} rejected={st?.event_type === "rejected"} />
                           <h3>Documents sent</h3>
                           <div className="doc-row">
                             <span className="muted">Resume</span>
@@ -657,3 +685,60 @@ function EventDate({ value, onSave }: { value: string; onSave: (iso: string) => 
            onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
   );
 }
+
+// -- what was claimed, why it was declined (owner request 2026-10-21) ------------------------------------
+type Claim = { name: string; level: number };
+const GERMAN_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2", "native"];
+export const REJECTION_LABELS: Record<string, string> = {
+  german_language: "German level", experience: "Experience", overqualified: "Overqualified", profile_fit: "Profile fit",
+  other_candidates: "Other candidates", position_filled: "Position filled", location_permit: "Location / permit",
+  salary: "Salary", not_given: "No reason given", other: "Other",
+};
+
+function ClaimCell({ german, skills }: { german: string | null; skills: Claim[] }) {
+  const shown = skills.slice(0, 3);
+  return (
+    <span className="claim-cell" title={skills.map((s) => `${s.name} ${s.level}/10`).join("\n") || undefined}>
+      <span className={german ? "claim-de" : "claim-de muted"}>DE {german ?? "?"}</span>
+      {shown.length > 0 && <span className="muted small"> · {shown.map((s) => `${s.name} ${s.level}`).join(" · ")}{skills.length > 3 ? ` +${skills.length - 3}` : ""}</span>}
+    </span>
+  );
+}
+
+function Claims({ app, skills, rejected, onSave }: {
+  app: App; skills: Claim[]; rejected: boolean;
+  onSave: (f: Partial<Pick<App, "claimed_german" | "rejection_reason" | "rejection_detail">>) => void;
+}) {
+  return (
+    <div className="claims">
+      <h3>What I claimed</h3>
+      <div className="row">
+        <label className="inline-label">German
+          <select value={app.claimed_german ?? ""} onChange={(e) => onSave({ claimed_german: e.target.value || null })}>
+            <option value="">not set</option>
+            {GERMAN_LEVELS.map((l) => <option key={l} value={l}>{l === "native" ? "native" : l}</option>)}
+          </select>
+        </label>
+        <span className="muted small">
+          {skills.length ? skills.map((s) => `${s.name} ${s.level}/10`).join(" · ") : "No skill levels set for this job."}{" "}
+          <a href={`#job/${app.job_posting_id}`}>Set on the job page →</a>
+        </span>
+      </div>
+      {(rejected || app.rejection_reason) && (
+        <>
+          <h3>Rejection reason</h3>
+          <div className="row">
+            <select value={app.rejection_reason ?? ""} aria-label="Rejection reason"
+                    onChange={(e) => onSave({ rejection_reason: e.target.value || null })}>
+              <option value="">not recorded</option>
+              {Object.entries(REJECTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <textarea rows={2} defaultValue={app.rejection_detail ?? ""} placeholder="Their words (filled from the email when it gives a reason)"
+                    onBlur={(e) => e.target.value.trim() !== (app.rejection_detail ?? "") && onSave({ rejection_detail: e.target.value.trim() || null })} />
+        </>
+      )}
+    </div>
+  );
+}
+

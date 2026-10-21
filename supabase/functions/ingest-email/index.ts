@@ -5,7 +5,7 @@
 
 import { cleanStepstoneLinks, isStepstone } from "../_shared/inbox/stepstone.ts";
 import { classify, type Category } from "../_shared/inbox/classify.ts";
-import { berlinToUtc, extractFields, icsStart, interviewTime, unforward } from "../_shared/inbox/extract.ts";
+import { berlinToUtc, extractFields, icsStart, interviewTime, rejectionReason, unforward } from "../_shared/inbox/extract.ts";
 import { matchApplication, type OpenApp } from "../_shared/inbox/match.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -139,6 +139,8 @@ async function handle(req: Request): Promise<Response> {
   // Interview time: the calendar invite first, then the text, then the HTML part.
   const interviewAt = icsStart(ics) ?? facts.interview_at ?? interviewTime([html]);
   facts.interview_at = interviewAt;
+  // A rejection's reason goes with the email; a database trigger copies it onto the application.
+  if (cls.category === "rejection") Object.assign(facts, rejectionReason(body));
   const interviewUtc = interviewAt ? berlinToUtc(interviewAt) : null;
   const scheduled = (type: string) => (type === "interview_invited" || type === "interview_scheduled" ? interviewUtc : null);
   const actions: Action[] = [];

@@ -215,3 +215,20 @@ Eingetragen: GenR 5, Amtsgericht Musterstadt`;
   assertEquals(extractFields("geno.HR", "geno.hr.peras.de", "Rückmeldung zu Ihrer Bewerbung", body, "noreply").company,
                "Beispielbank Musterstadt eG");
 });
+
+Deno.test("rejection reasons and their sentence", async () => {
+  const { rejectionReason } = await import("./extract.ts");
+  const cases: [string, string][] = [
+    ["Das deutsche Sprachniveau von mindestens C1 ist eine wesentliche Voraussetzung. Bedauerlicherweise können wir Ihnen momentan keine Stelle anbieten.", "german_language"],
+    ["Leider ist die Stelle bereits anderweitig besetzt.", "position_filled"],
+    ["Wir haben uns für einen anderen Kandidaten entschieden, dessen Profil noch besser passt.", "other_candidates"],
+    ["Leider entspricht Ihr Profil nicht ganz unserem Anforderungsprofil.", "profile_fit"],
+    ["We are looking for candidates with more hands-on experience in Spark.", "experience"],
+    ["Unfortunately we have decided to move forward with other candidates.", "other_candidates"],
+    ["Für diese Position sind Sie überqualifiziert.", "overqualified"],
+    ["Leider müssen wir Ihnen mitteilen, dass wir Sie nicht berücksichtigen können. Wir wünschen Ihnen alles Gute.", "not_given"],
+  ];
+  for (const [text, want] of cases) assertEquals(rejectionReason(text).rejection_reason, want, text);
+  const r = rejectionReason("Vielen Dank.\nDas deutsche Sprachniveau von mindestens C1 ist für uns\neine wesentliche Voraussetzung. Alles Gute.");
+  assertEquals(r.rejection_detail, "Das deutsche Sprachniveau von mindestens C1 ist für uns eine wesentliche Voraussetzung.");
+});

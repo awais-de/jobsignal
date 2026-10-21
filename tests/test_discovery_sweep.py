@@ -35,3 +35,18 @@ def test_time_budget_leaves_the_rest_for_later(monkeypatch):
     db = FakeDb()
     counts = run._probe_companies(db, [{"id": "x", "name": "a"}], {}, seconds=-1, workers=2)
     assert counts["left_for_later"] == 1 and not db.updates
+
+
+def test_a_failing_write_does_not_stop_the_sweep(monkeypatch):
+    monkeypatch.setattr(run, "probe_company", lambda name, api: None)
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+
+    class Flaky(FakeDb):
+        def update_company(self, cid, fields):
+            if cid == "bad":
+                raise TimeoutError("read timed out")
+            super().update_company(cid, fields)
+
+    db = Flaky()
+    counts = run._probe_companies(db, [{"id": "bad", "name": "a"}, {"id": "ok", "name": "b"}], {}, seconds=60, workers=2)
+    assert counts["write_errors"] == 1 and counts["not_found"] == 1 and "ok" in db.updates

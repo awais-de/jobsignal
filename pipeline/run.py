@@ -619,16 +619,26 @@ def _probe_companies(db: Database, comps: list[dict[str, Any]], cfg: dict[str, A
             with lock:
                 counts["errors"] += 1
         if found:
-            db.update_company(comp["id"], {
-                "discovery_status": "found", "ats": found.ats, "ats_token": found.token,
-                "verified_name": found.verified_name, "careers_url": found.careers_url,
-                "feed_type": "jsonld" if found.ats in ("jsonld", "sitemap") else "ats_feed",
-                "watch": True, "discovery_checked_at": now.isoformat(), "notes": f"found via {found.via}"})
+            fields = {"discovery_status": "found", "ats": found.ats, "ats_token": found.token,
+                      "verified_name": found.verified_name, "careers_url": found.careers_url,
+                      "feed_type": "jsonld" if found.ats in ("jsonld", "sitemap") else "ats_feed",
+                      "watch": True, "discovery_checked_at": now.isoformat(), "notes": f"found via {found.via}"}
             key = f"found_via_{found.via}"
         else:
-            db.update_company(comp["id"], {"discovery_status": "not_found", "discovery_checked_at": now.isoformat(),
-                                           "next_check_at": (now + timedelta(days=retry_days)).isoformat()})
+            fields = {"discovery_status": "not_found", "discovery_checked_at": now.isoformat(),
+                      "next_check_at": (now + timedelta(days=retry_days)).isoformat()}
             key = "not_found"
+        # A slow database write is retried once; if it still fails the company stays unchecked for the next
+        # run (2026-10-21: one write timeout stopped the whole sweep).
+        for attempt in (1, 2):
+            try:
+                db.update_company(comp["id"], fields)
+                break
+            except Exception:  # noqa: BLE001
+                if attempt == 2:
+                    key = "write_errors"
+                else:
+                    time.sleep(2)
         with lock:
             counts[key] += 1
 

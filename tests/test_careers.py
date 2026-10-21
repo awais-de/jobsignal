@@ -84,6 +84,19 @@ def test_new_pages_stop_at_the_time_budget():
     assert src.fetch_company(COMPANY) == [] and not any("/job/" in u for u in seen)
 
 
+def test_big_portal_fetches_only_new_links_naming_a_german_place():
+    places = ["Springfield", "Shelbyville", "Ogdenville", "M%C3%BCnchen"]       # invented abroad + one German
+    urls = [f"https://jobs.example.org/job/{places[i % 4]}-Data-Engineer/{i}/" for i in range(600)]
+    sitemap = "<?xml version='1.0'?><urlset>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
+    c = {**COMPANY, "url": "https://jobs.example.org/sitemap.xml", "link_pattern": "/job/"}
+    known = {urls[0]}                                                               # Springfield, already stored
+    src, seen = make({"https://jobs.example.org/sitemap.xml": sitemap}, [c], known=known)
+    got = src.fetch_company(c)
+    fetched = [u for u in seen if "/job/" in u]
+    assert fetched and all("M%C3%BCnchen" in u for u in fetched)
+    assert any(p.source_data.get("stub") and p.source_job_id == urls[0] for p in got)   # known one still listed
+
+
 def test_sitemap_links():
     sitemap = ('<?xml version="1.0"?><urlset><url><loc>https://jobs.example.org/de/job/A/1</loc></url>'
                '<url><loc>https://jobs.example.org/de/about</loc></url></urlset>')

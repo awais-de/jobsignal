@@ -21,17 +21,19 @@ import time
 from datetime import date, datetime
 from html import unescape
 from typing import Any, Callable
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
 
 from pipeline.models import RawPosting
+from pipeline.sources.arbeitnow import is_germany
 from pipeline.sources.ats import _FOREIGN, ATS, feed_jobs
 
 log = logging.getLogger("jobsignal")
 
 SOURCE = "careers"
+BIG_PORTAL = 500   # job links on one careers site from which German-place filtering applies
 UA = "Mozilla/5.0 (compatible; jobsignal/0.1; personal job search; +https://github.com/awais-de/jobsignal)"
 COUNTRY_ISO = {"germany": "DE", "deutschland": "DE", "de": "DE", "austria": "AT", "österreich": "AT",
                "switzerland": "CH", "schweiz": "CH", "united kingdom": "GB", "uk": "GB", "gb": "GB",
@@ -115,6 +117,12 @@ class CareersSource:
         links = [u for u in links if self._worth_fetching(u, company)]
         known = self.known_ids(links) if links else set()
         initial = not known
+        # Big international portals name the place in the job URL (2026-10-21: 9,000 links, 420 in Germany).
+        # When enough of them name a German place, new links naming none are skipped; known ones still count.
+        if len(links) >= BIG_PORTAL:
+            german = {u for u in links if is_germany(_url_words(u))}
+            if len(german) >= max(10, len(links) // 50):
+                links = [u for u in links if u in known or u in german]
         out: list[RawPosting] = []
         fetched = 0
         deadline = time.monotonic() + self.time_budget
@@ -138,7 +146,7 @@ class CareersSource:
     def _worth_fetching(self, url: str, company: dict[str, Any]) -> bool:
         """Large portals list thousands of jobs worldwide: skip URLs that name a foreign place, and for
         companies on the normal filters, URLs whose readable title words can't match the title list."""
-        words = re.sub(r"[-_/%0-9]+", " ", unescape(urlparse(url).path)).strip()
+        words = _url_words(url)
         if _FOREIGN.search(words):
             return False
         if company.get("filters", "watch") == "all" and self.title_allow and len(re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", words)) >= 2:
@@ -245,6 +253,11 @@ class CareersSource:
 
 
 # -- helpers ----------------------------------------------------------------------------
+def _url_words(url: str) -> str:
+    """The readable words of a URL path ('M%C3%BCnchen' → 'München')."""
+    return re.sub(r"[-_/%0-9()]+", " ", unquote(unescape(urlparse(url).path))).strip()
+
+
 def _canonical(url: str) -> str:
     """Drop tracking query parameters and fragments; keep the path (it identifies the job)."""
     p = urlparse(url)

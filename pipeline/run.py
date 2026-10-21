@@ -216,8 +216,13 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         due = lambda c: (c.get("manually_edited") or c.get("tier") in (None, "A")  # noqa: E731
                          or (not fast and c.get("tier") == "B" and int(hashlib.md5(c["id"].encode()).hexdigest(), 16) % 7 == weekday))
         watchlist += [watch_entry(c) for c in db.watched_companies() if c["name"].lower() not in named and due(c)]
+    careers_cfg = dict(sources_cfg.get("careers", {}))
+    if fast:
+        for k in ("max_new_pages_per_company", "company_time_budget_seconds"):
+            if k in sources_cfg.get("fast_lane", {}):
+                careers_cfg[k] = sources_cfg["fast_lane"][k]
     careers = CareersSource(
-        watchlist, {**sources_cfg.get("careers", {}), "search_terms": profile["search_terms"],
+        watchlist, {**careers_cfg, "search_terms": profile["search_terms"],
                     "title_allow": profile["titles"].get("allow", [])},
         known_ids=(lambda ids: db.known_ids("careers", ids)) if db else (lambda ids: set()),
         page_extractor=make_page_extractor(page_router, llm_cfg["stages"][PAGE_STAGE]),
@@ -241,18 +246,17 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
             log.warning("source %s failed: %s", label, type(exc).__name__)
             return [], {"source": source, "status": "failed", "fetched": 0, "error": type(exc).__name__, "ms": _ms(t0)}, label
 
-    # Career sites are many and slow (~4 s each): fetched 8 at a time; the rest in order. Results keep the
-    # fetchers' order, so the run is deterministic.
-    careers_items = [f for f in fetchers if f[0].startswith("careers:")]
-    other_items = [f for f in fetchers if not f[0].startswith("careers:")]
-    results = [run_fetch(f) for f in other_items]
+    # Sources are many and slow (career sites ~4 s each): fetched 8 at a time, the big feeds started first so
+    # they run alongside the career sites. Results keep the fetchers' order, so the run is deterministic.
     with ThreadPoolExecutor(max_workers=int(sources_cfg.get("careers", {}).get("parallel", 8))) as pool:
-        results += list(pool.map(run_fetch, careers_items))
-    for got, result, failed in results:
+        results = list(pool.map(run_fetch, fetchers))
+    for (_, label, _), (got, result, failed) in zip(fetchers, results):
         raws.extend(got)
         source_results.append(result)
         if failed:
             failed_sources.append(failed)
+        if result["ms"] > 60_000:
+            log.info("slow source %s: %.0f s", label, result["ms"] / 1000)
 
     # Alert emails don't say who posts: recruiters from the agency list are marked (ghost signal, badge).
     agencies = [x.lower() for x in (sources_cfg.get("discovery") or {}).get("agencies", [])]

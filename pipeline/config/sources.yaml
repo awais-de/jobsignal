@@ -20,6 +20,7 @@ careers:
   # Company watchlist (the companies themselves are in the private profile under `watchlist`).
   request_delay_seconds: 1.0       # polite pacing per request
   max_new_pages_per_company: 120   # cap on new job pages fetched per company per run
+  company_time_budget_seconds: 300 # and on the time spent on new pages per company per run
 
 discovery:
   # Company discovery (spec 7.2): employers seen with a job in Germany are probed on common ATS.
@@ -40,3 +41,6 @@ fast_lane:
   max_detail_fetches: 40
   max_extractions: 12           # AI analyses per fast run (free tier ~4 a minute); the rest wait for the daily run
   max_extraction_seconds: 300
+  # Career sites: a few new pages each; a company's first load (thousands of pages) is left to the daily run.
+  max_new_pages_per_company: 10
+  company_time_budget_seconds: 60

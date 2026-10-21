@@ -64,6 +64,26 @@ def test_known_pages_are_not_refetched():
     assert got[1].source_data["initial_load"] is False        # company already known
 
 
+def test_new_pages_stop_at_the_cap_but_known_links_still_count():
+    links = "".join(f'<a href="/job/{i}/x">{i}</a>' for i in range(1, 6))
+    routes = {"https://jobs.example.org/en/vacancies": links,
+              **{f"https://jobs.example.org/job/{i}/x": job_page() for i in range(1, 6)}}
+    src, seen = make(routes, [COMPANY], known={"https://jobs.example.org/job/5/x"})
+    src.max_new = 2
+    got = src.fetch_company(COMPANY)
+    assert sum(1 for u in seen if "/job/" in u) == 2
+    assert [p.source_data.get("stub", False) for p in got] == [False, False, True]   # job 5 still listed
+
+
+def test_new_pages_stop_at_the_time_budget():
+    links = "".join(f'<a href="/job/{i}/x">{i}</a>' for i in range(1, 4))
+    routes = {"https://jobs.example.org/en/vacancies": links,
+              **{f"https://jobs.example.org/job/{i}/x": job_page() for i in range(1, 4)}}
+    src, seen = make(routes, [COMPANY])
+    src.time_budget = 0
+    assert src.fetch_company(COMPANY) == [] and not any("/job/" in u for u in seen)
+
+
 def test_sitemap_links():
     sitemap = ('<?xml version="1.0"?><urlset><url><loc>https://jobs.example.org/de/job/A/1</loc></url>'
                '<url><loc>https://jobs.example.org/de/about</loc></url></urlset>')

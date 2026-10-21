@@ -57,6 +57,9 @@ class CareersSource:
         self.companies = companies
         self.delay = float(settings.get("request_delay_seconds", 1.0))
         self.max_new = int(settings.get("max_new_pages_per_company", 120))
+        # A huge portal on its first load (2026-10-21: 9,000 links, AI-read pages, ~11 min) stops at this budget;
+        # the next runs carry on where it stopped.
+        self.time_budget = float(settings.get("company_time_budget_seconds", 300))
         self.search_terms: list[str] = list(settings.get("search_terms") or [])   # Workday search
         self.title_allow = [re.compile(p, re.I) for p in settings.get("title_allow") or []]
         self.known_ids = known_ids
@@ -114,12 +117,13 @@ class CareersSource:
         initial = not known
         out: list[RawPosting] = []
         fetched = 0
+        deadline = time.monotonic() + self.time_budget
         for link in links:
             if link in known:
                 out.append(_stub(link, company))      # still listed: only last_seen_at is updated
                 continue
-            if fetched >= self.max_new:
-                break
+            if fetched >= self.max_new or time.monotonic() > deadline:
+                continue                              # keep adding stubs for the known links that follow
             fetched += 1
             try:
                 posting = self._job_page(link, company)

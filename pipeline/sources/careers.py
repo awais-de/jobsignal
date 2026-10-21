@@ -100,7 +100,8 @@ class CareersSource:
     # -- career_page ----------------------------------------------------------------------
     def _career_page(self, company: dict[str, Any]) -> list[RawPosting]:
         url = company["url"]
-        pattern = re.compile(company.get("link_pattern", r"/jobs?/"))
+        # A page without a pattern (e.g. a JSON-LD career page) uses the common job-link paths.
+        pattern = re.compile(company.get("link_pattern") or r"/(jobs?|stellen[a-z-]*|karriere|careers?|vacanc[a-z]*|positions?|job-offers?)/")
         text = self._get(url).text
         if text.lstrip().startswith("<?xml") or "<urlset" in text[:500]:
             links = [unescape(u) for u in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", text)]

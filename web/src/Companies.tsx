@@ -1,0 +1,224 @@
+import { useCallback, useEffect, useState } from "react";
+import { supabase } from "./supabase";
+
+// Company discovery (Feed → Companies; owner request 2026-10-21): how the daily run looks for employers'
+// own career sites, live while it runs. Discovery probes about 50 companies per run (sources.yaml
+// discovery.companies_per_run) within 5 minutes, after the jobs are saved; alert employers go first.
+
+const PER_RUN = 50;
+type Checked = { id: string; name: string; status: string; ats: string | null; notes: string | null; prioritised: boolean; checked_at: string };
+type Found = {
+  id: string; name: string; ats: string | null; careers_url: string | null; watch: boolean; notes: string | null; manually_edited: boolean;
+  found_at: string | null; last_run_at: string | null; last_status: string | null; last_fetched: number | null; last_error: string | null;
+  jobs: number; passed: number;
+};
+type Overview = {
+  run: { started_at: string; finished_at: string | null; status: string } | null;
+  counts: Record<string, number>; watched: number; queue_prioritised: number; retry_due: number;
+  checked: Checked[]; history: { day: string; checked: number; found: number }[];
+  queue: { id: string; name: string; prioritised: boolean; relevant: boolean; discovered_from: string | null }[];
+  alert_not_found: { id: string; name: string; checked_at: string | null }[];
+  found: Found[];
+};
+type Company = { id: string; name: string; discovery_status: string; ats: string | null; careers_url: string | null; watch: boolean; is_agency: boolean; priority: number };
+
+const ATS_LABEL: Record<string, string> = {
+  personio: "Personio", greenhouse: "Greenhouse", lever: "Lever", recruitee: "Recruitee", ashby: "Ashby", smartrecruiters: "SmartRecruiters",
+  workable: "Workable", join: "JOIN", softgarden: "softgarden", jsonld: "career page", sitemap: "career page (sitemap)",
+};
+const atsLabel = (a: string | null) => (a ? ATS_LABEL[a] ?? a : "–");
+const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+
+export default function Companies() {
+  const [o, setO] = useState<Overview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.rpc("discovery_overview");
+    if (error) return setError(error.message);
+    setO(data as Overview);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  // Live while the daily run is going (discovery is its last few minutes).
+  const running = o?.run?.status === "running";
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(load, 8000);
+    return () => clearInterval(t);
+  }, [running, load]);
+
+  async function act(id: string, action: string, value?: Record<string, string>, done?: string) {
+    const { error } = await supabase.rpc("company_action", { p_id: id, p_action: action, p_value: value ?? null });
+    if (error) return setError(error.message);
+    setFlash(done ?? "Done");
+    setTimeout(() => setFlash(null), 3000);
+    load();
+  }
+
+  if (!o) return <p className="empty">{error ?? "Loading…"}</p>;
+  const c = o.counts ?? {};
+  const pending = c.pending ?? 0;
+  const week = o.history.filter((h) => new Date(h.day) > new Date(Date.now() - 7 * 86400000));
+  const checked7 = week.reduce((n, h) => n + h.checked, 0), found7 = week.reduce((n, h) => n + h.found, 0);
+  const lastFound = o.checked.filter((x) => x.status === "found").length;
+
+  return (
+    <div className="companies">
+      {error && <p className="notice">{error} <button className="link" onClick={() => setError(null)}>×</button></p>}
+      <section className="card">
+        <div className="control-bar">
+          <h2>{running ? <span className="dot dot-amber pulse" /> : <span className="dot dot-green" />} Company discovery</h2>
+          <span className="muted small">
+            {running ? `Today's run is going (since ${time(o.run!.started_at)}): discovery is its last few minutes, this page updates itself.`
+              : o.run ? `Last run ${day(o.run.started_at)} ${time(o.run.started_at)}; discovery runs at its end. Next run: tomorrow morning.` : ""}
+          </span>
+          <button className="small" onClick={load}>Refresh</button>
+        </div>
+        <p className="muted small">
+          Each daily run checks about {PER_RUN} employers seen in job ads for a career site it can read (Personio, Greenhouse, a page with job
+          listings…). Found ones are watched: their jobs come straight from the employer, with descriptions. Employers of StepStone jobs without a
+          description are checked first.
+        </p>
+        <div className="dash-tiles">
+          <Tile v={o.watched} label="Career sites watched" hint={`${c.found ?? 0} found in total`} />
+          <Tile v={pending} label="Waiting to be checked" hint={`≈${Math.ceil(pending / PER_RUN)} days · ${o.queue_prioritised} first in line`} />
+          <Tile v={c.not_found ?? 0} label="No readable site" hint={`${o.retry_due} due for a retry`} />
+          <Tile v={checked7 ? Math.round((100 * found7) / checked7) : 0} label="Hit rate, 7 days (%)" hint={`${found7} of ${checked7} checked`} />
+        </div>
+      </section>
+
+      <section className="card">
+        <h3>{running ? "Checking now" : "Last run"} <span className="muted small">· {o.checked.length} checked, {lastFound} found</span></h3>
+        {o.checked.length === 0 ? <p className="muted small">{running ? "Discovery starts after the jobs are saved." : "Nothing checked in the last run."}</p> : (
+          <ul className="disc-list">
+            {o.checked.map((x) => (
+              <li key={x.id}>
+                <span className="muted small">{time(x.checked_at)}</span>
+                <span className="disc-name">{x.name}</span>
+                {x.prioritised && <span className="badge" title="Employer of a StepStone job without a description">alert</span>}
+                {x.status === "found"
+                  ? <span className="status status-green">found · {atsLabel(x.ats)}</span>
+                  : <span className="status status-grey">{x.status === "not_found" ? "no readable site" : x.status}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card">
+        <h3>StepStone employers without a readable site <span className="muted small">· {o.alert_not_found.length}</span></h3>
+        <p className="muted small">If you know one's careers page, add it: its jobs then come with descriptions and replace the StepStone cards.</p>
+        <ul className="disc-list">
+          {o.alert_not_found.map((x) => <li key={x.id}><span className="disc-name">{x.name}</span><AddCareers onAdd={(url, pattern) => act(x.id, "careers", { url, pattern }, `${x.name}: career page added, read from the next run`)} /></li>)}
+        </ul>
+      </section>
+
+      <div className="companies-grid">
+        <section className="card">
+          <h3>Next in line <span className="muted small">· {pending} waiting</span></h3>
+          <ol className="disc-list numbered">
+            {o.queue.map((q) => (
+              <li key={q.id}>
+                <span className="disc-name">{q.name}</span>
+                {q.prioritised ? <span className="badge">first</span>
+                  : <button className="link small" onClick={() => act(q.id, "prioritise", undefined, `${q.name} moves to the front`)}>move to front</button>}
+              </li>
+            ))}
+          </ol>
+        </section>
+        <section className="card">
+          <h3>Last 14 days</h3>
+          <table className="apps mini">
+            <thead><tr><th>Day</th><th>Checked</th><th>Found</th></tr></thead>
+            <tbody>{o.history.map((h) => <tr key={h.day}><td>{day(h.day)}</td><td>{h.checked}</td><td>{h.found}</td></tr>)}</tbody>
+          </table>
+        </section>
+      </div>
+
+      <section className="card">
+        <h3>Watched career sites <span className="muted small">· jobs in the last 30 days</span></h3>
+        <div className="table-wrap">
+          <table className="apps">
+            <thead><tr><th>Company</th><th>System</th><th>Jobs</th><th>Passed</th><th>Last check</th><th></th></tr></thead>
+            <tbody>
+              {o.found.map((f) => (
+                <tr key={f.id} className={f.watch ? "" : "off"}>
+                  <td className="strong">{f.careers_url ? <a href={f.careers_url} target="_blank" rel="noreferrer">{f.name}</a> : f.name}
+                    {f.manually_edited && <span className="badge">by hand</span>}</td>
+                  <td className="muted">{atsLabel(f.ats)}</td>
+                  <td>{f.jobs}</td>
+                  <td>{f.passed}</td>
+                  <td className="muted small">{f.last_run_at ? `${day(f.last_run_at)} · ${f.last_status === "failed" ? `failed (${f.last_error ?? "error"})` : `${f.last_fetched ?? 0} listed`}` : "not yet"}</td>
+                  <td>{f.watch
+                    ? <button className="link small" onClick={() => act(f.id, "unwatch", undefined, `${f.name} no longer watched`)}>stop watching</button>
+                    : <button className="link small" onClick={() => act(f.id, "watch", undefined, `${f.name} watched again`)}>watch</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <Search act={act} />
+      {flash && <div className="toast">{flash}</div>}
+    </div>
+  );
+}
+
+function Tile({ v, label, hint }: { v: number; label: string; hint: string }) {
+  return <div className="card dash-tile"><span className="dash-value">{v}</span><span className="dash-label">{label}</span><span className="muted small">{hint}</span></div>;
+}
+
+function AddCareers({ onAdd }: { onAdd: (url: string, pattern: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [pattern, setPattern] = useState("");
+  if (!open) return <button className="link small" onClick={() => setOpen(true)}>add careers page</button>;
+  return (
+    <form className="row add-careers" onSubmit={(e) => { e.preventDefault(); if (/^https?:\/\//.test(url.trim())) { onAdd(url.trim(), pattern.trim()); setOpen(false); } }}>
+      <input type="url" value={url} placeholder="https://beispiel.de/karriere" onChange={(e) => setUrl(e.target.value)} aria-label="Careers page" />
+      <input value={pattern} placeholder="job link pattern (optional)" title="A part of the job links' address, e.g. /stellenangebote/ (regular expression)" onChange={(e) => setPattern(e.target.value)} />
+      <button className="small primary" disabled={!/^https?:\/\//.test(url.trim())}>Add</button>
+      <button type="button" className="link small" onClick={() => setOpen(false)}>Cancel</button>
+    </form>
+  );
+}
+
+/** Any company by name, with what can be done to it. */
+function Search({ act }: { act: (id: string, action: string, value?: Record<string, string>, done?: string) => void }) {
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState<Company[]>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setRows([]); return; }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from("companies").select("id,name,discovery_status,ats,careers_url,watch,is_agency,priority")
+        .is("deleted_at", null).ilike("name", `%${q.trim()}%`).order("name").limit(20);
+      setRows((data ?? []) as Company[]);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const label = (r: Company) => r.is_agency ? "agency (not checked)" : r.discovery_status === "found" ? `found · ${atsLabel(r.ats)}${r.watch ? "" : " · not watched"}`
+    : r.discovery_status === "not_found" ? "no readable site" : r.discovery_status === "pending" ? (r.priority > 0 ? "waiting · first in line" : "waiting") : r.discovery_status;
+  return (
+    <section className="card">
+      <h3>Find a company</h3>
+      <input className="wide-input" value={q} placeholder="Company name" onChange={(e) => setQ(e.target.value)} aria-label="Find a company" />
+      <ul className="disc-list">
+        {rows.map((r) => (
+          <li key={r.id}>
+            <span className="disc-name">{r.name}</span>
+            <span className="muted small">{label(r)}</span>
+            <span className="mcv-tools">
+              {r.discovery_status === "pending" && r.priority === 0 && !r.is_agency && <button className="link small" onClick={() => act(r.id, "prioritise", undefined, `${r.name} moves to the front`)}>move to front</button>}
+              {(r.discovery_status === "not_found" || r.discovery_status === "skipped") && !r.is_agency && <button className="link small" onClick={() => act(r.id, "retry", undefined, `${r.name} is checked again next run`)}>check again</button>}
+              {!r.is_agency && <button className="link small" onClick={() => act(r.id, "agency", undefined, `${r.name} marked as an agency`)}>it's an agency</button>}
+              {r.discovery_status !== "found" && <AddCareers onAdd={(url, pattern) => act(r.id, "careers", { url, pattern }, `${r.name}: career page added`)} />}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

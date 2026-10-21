@@ -7,6 +7,7 @@ import Feed from "./Feed";
 import Home from "./Home";
 import MasterCv from "./MasterCv";
 import CvGenerator from "./CvGenerator";
+import Companies from "./Companies";
 import JobPage from "./JobPage";
 import Lab from "./Lab";
 import People from "./People";
@@ -35,12 +36,12 @@ function Authed() {
   return session ? <Shell /> : <Login />;
 }
 
-type View = "home" | "feed" | "lab" | "applications" | "responses" | "people" | "skills" | "mastercv" | "cvs" | "profile";
+type View = "home" | "feed" | "lab" | "companies" | "applications" | "responses" | "people" | "skills" | "mastercv" | "cvs" | "profile";
 type Route = { view: View; job: string | null };
 const JOB_HASH = /^#job\/([0-9a-f-]{36})$/;
 // Old links keep working: #add is on Applications, #control on Home.
 const HASH_VIEWS: Record<string, View> = {
-  "": "home", "#": "home", "#home": "home", "#control": "home", "#feed": "feed", "#lab": "lab",
+  "": "home", "#": "home", "#home": "home", "#control": "home", "#feed": "feed", "#lab": "lab", "#companies": "companies",
   "#applications": "applications", "#add": "applications", "#responses": "responses", "#people": "people",
   "#skills": "skills", "#mastercv": "mastercv", "#cvs": "cvs", "#profile": "profile",
 };
@@ -53,7 +54,7 @@ function routeFromHash(): Route {
 // The menu: sections, each with one or more pages (shown as sub-tabs). Home opens from the brand.
 type Section = "feed" | "applications" | "outreach" | "me";
 const SECTIONS: { key: Section; label: string; pages: { view: View; label: string }[] }[] = [
-  { key: "feed", label: "Feed", pages: [{ view: "feed", label: "Jobs" }, { view: "lab", label: "Lab" }] },
+  { key: "feed", label: "Feed", pages: [{ view: "feed", label: "Jobs" }, { view: "lab", label: "Lab" }, { view: "companies", label: "Companies" }] },
   { key: "applications", label: "Applications", pages: [{ view: "applications", label: "Applications" }] },
   { key: "outreach", label: "Outreach", pages: [{ view: "responses", label: "Responses" }, { view: "people", label: "People" }] },
   { key: "me", label: "Me", pages: [{ view: "skills", label: "Skills" }, { view: "mastercv", label: "Master CV" }, { view: "cvs", label: "CVs" }, { view: "profile", label: "Profile" }] },
@@ -180,7 +181,7 @@ function Shell() {
             ))}
           </div>
         )}
-        {view === "home" ? <Home /> : view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "skills" ? <Skills /> : view === "mastercv" ? <MasterCv /> : view === "cvs" ? <CvGenerator /> : <ProfilePage />}
+        {view === "home" ? <Home /> : view === "feed" ? <Feed /> : view === "applications" ? <Applications /> : view === "lab" ? <Lab /> : view === "companies" ? <Companies /> : view === "responses" ? <Responses /> : view === "people" ? <People /> : view === "skills" ? <Skills /> : view === "mastercv" ? <MasterCv /> : view === "cvs" ? <CvGenerator /> : <ProfilePage />}
       </div>
     </div>
   );

@@ -619,6 +619,22 @@ textarea.person-notes {
 .claims textarea { width: 100%; margin-top: 6px; resize: vertical; }
 .inline-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 
+/* Company discovery (Feed → Companies) */
+.companies > .card { margin-bottom: 12px; }
+.companies .dash-tiles { margin: 10px 0 0; }
+.companies-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+@media (max-width: 800px) { .companies-grid { grid-template-columns: 1fr; } }
+.companies-grid > .card { margin: 0; }
+ul.disc-list, ol.disc-list { list-style: none; padding: 0; margin: 6px 0 0; max-height: 360px; overflow-y: auto; }
+ol.disc-list.numbered { list-style: decimal; padding-left: 22px; }
+.disc-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.disc-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.companies tr.off td { opacity: 0.5; }
+.add-careers input { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; min-width: 0; flex: 1 1 180px; }
+.companies .wide-input { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
 /* Ghost check */
 .badge.ghost-verify { background: #fff4d6; color: #7d4e00; }
 .badge.ghost-skip { background: #ffe1e0; color: #a40e26; }

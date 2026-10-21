@@ -28,9 +28,21 @@ RPCS = {
 }
 
 
+class _Retrying(httpx.Client):
+    """A timeout isn't an answer about permissions: retry it (2026-10-21, one slow response failed CI)."""
+
+    def request(self, *args, **kwargs):
+        for attempt in range(3):
+            try:
+                return super().request(*args, **kwargs)
+            except httpx.TimeoutException:
+                if attempt == 2:
+                    raise
+
+
 @pytest.fixture(scope="module")
 def anon():
-    return httpx.Client(base_url=f"{URL.rstrip('/')}/rest/v1", headers={"apikey": KEY}, timeout=20)
+    return _Retrying(base_url=f"{URL.rstrip('/')}/rest/v1", headers={"apikey": KEY}, timeout=20)
 
 
 def test_schema_exposes_nothing_to_anon(anon):

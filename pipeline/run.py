@@ -183,6 +183,17 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     fetchers: list[tuple[str, str, Any]] = []        # (source key for DB, label for public logs, fetch)
     if ba_cfg.get("enabled", True):
         fetchers.append((ba.name, ba.name, lambda: ba.fetch(profile["search_terms"])))
+    # Arbeitsagentur employer watch: group-A companies whose career site can't be read (owner request 2026-10-21).
+    employer_watch: dict[str, Any] = {}
+    if db and ba_cfg.get("enabled", True) and sources_cfg.get("ba_employer_watch", {}).get("enabled", True):
+        watch_rows = _optional("ba employer list", lambda: db.ba_watch_companies(all_unreadable=not fast))
+        if isinstance(watch_rows, list) and watch_rows:
+            def employers() -> list[RawPosting]:
+                got, totals = ba.fetch_employers([r["name"] for r in watch_rows], 1 if fast else 2)
+                employer_watch["totals"] = totals
+                return got
+            fetchers.append(("ba_api:employers", "ba_api:employers", employers))
+            employer_watch["rows"] = watch_rows
     an_cfg = sources_cfg.get("arbeitnow", {})
     if an_cfg.get("enabled", False):
         arbeitnow = ArbeitnowSource(an_cfg)
@@ -297,7 +308,16 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                      key=lambda c: keyword_overlap(c.raw.description, enricher.index), reverse=True)
     explore_cap = int(load_config("llm.yaml")["stages"][STAGE].get("explore_per_run", 20))
     to_extract = [c for c in passed if c.lane != "explore"] + explore[:explore_cap]
+    # The fast lane must finish in minutes (free-tier AI does ~4 analyses a minute): a few core jobs, no explore;
+    # the rest are saved as pending and the daily run's backlog analyses them.
+    extract_deadline = None
+    if fast:
+        fast_cfg = sources_cfg.get("fast_lane", {})
+        to_extract = [c for c in passed if c.lane != "explore"][: int(fast_cfg.get("max_extractions", 12))]
+        extract_deadline = time.monotonic() + float(fast_cfg.get("max_extraction_seconds", 300))
     for c in to_extract:
+        if extract_deadline and time.monotonic() > extract_deadline:
+            break
         cols, reason = enricher.run(c.raw.title, c.raw.description, source_contract=c.raw.contract_type,
                                     remote_policy=c.raw.remote_policy, salary_text=c.raw.salary_text,
                                     unfiltered=c.raw.source_data.get("filter_mode") == "none")
@@ -335,6 +355,12 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         db.record_reposts(repost_ids)
         if alerts:
             _optional("alerts parsed", alerts.mark_parsed)
+        if not fast and employer_watch.get("totals") is not None:
+            totals = employer_watch["totals"]
+            rows = employer_watch["rows"]
+            _optional("ba employer flags", lambda: db.set_ba_watch([r["id"] for r in rows if totals.get(r["name"], 0) > 0],
+                                                                    [r["id"] for r in rows if totals.get(r["name"], 0) == 0
+                                                                     and r["name"] in totals], now))
         # Cross-source merging (spec 7.3.2): retire weaker copies only for rows that passed.
         db.supersede([sid for c in passed for sid in c.supersedes])
         for sid, text in merge.enrich:

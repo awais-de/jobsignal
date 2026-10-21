@@ -298,6 +298,21 @@ class Database:
             "order": "priority.desc,tier.asc.nullsfirst,relevance_score.desc,next_check_at.asc", "limit": limit - len(pending)})
         return pending + retry
 
+    def ba_watch_companies(self, all_unreadable: bool) -> list[dict[str, Any]]:
+        """Group-A companies without a readable career site: all of them (daily run) or the ones known to post
+        at the Arbeitsagentur (fast lane)."""
+        params = {"select": "id,name", "tier": "eq.A", "discovery_status": "eq.not_found", "is_agency": "eq.false",
+                  "deleted_at": "is.null", "limit": 500}
+        if not all_unreadable:
+            params["ba_watch"] = "eq.true"
+        return self._req("GET", "/companies", params=params)
+
+    def set_ba_watch(self, posting: list[str], silent: list[str], now: datetime) -> None:
+        for ids, flag in ((posting, True), (silent, False)):
+            for chunk in _chunks(ids, BATCH):
+                self._req("PATCH", "/companies", params={"id": f"in.({','.join(chunk)})"},
+                          json={"ba_watch": flag, "ba_checked_at": now.isoformat()})
+
     def score_companies(self) -> dict[str, int]:
         return self._req("POST", "/rpc/score_companies", json={}) or {}
 

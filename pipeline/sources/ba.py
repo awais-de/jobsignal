@@ -65,6 +65,21 @@ class BundesagenturSource:
                     break
         return out
 
+    def fetch_employers(self, names: list[str], days: int) -> tuple[list[RawPosting], dict[str, int]]:
+        """Everything these employers published in the last `days` days (exact employer name; one page of
+        100 each, newest first). Returns the postings and the number of results per employer."""
+        out: list[RawPosting] = []
+        totals: dict[str, int] = {}
+        for name in names:
+            try:
+                data = self._get(SEARCH_URL, params={"arbeitgeber": name, "angebotsart": 1, "veroeffentlichtseit": days,
+                                                     "page": 1, "size": 100})
+            except (httpx.HTTPError, ValueError):
+                continue
+            totals[name] = int(data.get("maxErgebnisse") or 0)
+            out.extend(p for p in (parse_search_item(i) for i in data.get("ergebnisliste") or []) if p)
+        return out, totals
+
     # -- details --------------------------------------------------------------
     def fetch_details(self, posting: RawPosting) -> None:
         """Fill description and agency flags in place. Raises on HTTP errors."""

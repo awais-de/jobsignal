@@ -24,6 +24,7 @@ type Overview = {
 type Company = { id: string; name: string; discovery_status: string; ats: string | null; careers_url: string | null; watch: boolean; is_agency: boolean; priority: number; tier: string | null };
 type Focus = {
   id: string; name: string; score: number; status: string; ats: string | null; careers_url: string | null; watch: boolean; manually_edited: boolean;
+  ba_watch: boolean;   // no readable site, but its jobs come from the Arbeitsagentur by employer
   relevance: { applied: number; passed_core: number; core_jobs: number; explore_jobs: number; alert_jobs: number; contacts: number; jobs: number; last_relevant: string | null } | null;
 };
 const TIER_TEXT: Record<string, string> = {
@@ -324,19 +325,21 @@ function HistoryChart({ history }: { history: { day: string; checked: number; fo
 
 /** Group A, ranked: the companies to focus the search on. */
 function FocusList({ focus, act }: { focus: Focus[]; act: (id: string, action: string, value?: Record<string, string>, done?: string) => void }) {
-  const [filter, setFilter] = useState<"all" | "watched" | "none" | "unchecked">("all");
+  const [filter, setFilter] = useState<"all" | "watched" | "ba" | "none" | "unchecked">("all");
   const [showAll, setShowAll] = useState(false);
-  const is = (f: Focus) => (f.status === "found" ? "watched" : f.status === "not_found" ? "none" : "unchecked");
+  const is = (f: Focus) => (f.status === "found" ? "watched" : f.status === "not_found" ? (f.ba_watch ? "ba" : "none") : "unchecked");
   const rows = focus.filter((f) => filter === "all" || is(f) === filter);
   const shown = showAll ? rows : rows.slice(0, 40);
   const count = (k: string) => focus.filter((f) => is(f) === k).length;
   return (
     <section className="card">
       <h3>Your focus companies <span className="muted small">· group A, {focus.length}, ranked by relevance</span></h3>
-      <p className="muted small">Score: 10 per application, 5 per job that passed your filters, 3 per core-direction job (up to 10), 2 per StepStone alert job,
+      <p className="muted small">Coverage: a readable career site (read daily and in the fast lane), or the Arbeitsagentur by employer; for the
+        ones not covered, add their careers page: its job list is watched for new links.<br />Score: 10 per application, 5 per job that passed your filters, 3 per core-direction job (up to 10), 2 per StepStone alert job,
         1 per Explore job, 3 if you have a contact there.</p>
       <div className="tabs">
-        {([["all", `All ${focus.length}`], ["watched", `Career site read ${count("watched")}`], ["none", `No readable site ${count("none")}`], ["unchecked", `Unchecked ${count("unchecked")}`]] as const).map(([k, l]) => (
+        {([["all", `All ${focus.length}`], ["watched", `Career site read ${count("watched")}`], ["ba", `Via Arbeitsagentur ${count("ba")}`],
+           ["none", `Not covered ${count("none")}`], ["unchecked", `Unchecked ${count("unchecked")}`]] as const).map(([k, l]) => (
           <button key={k} className={filter === k ? "active" : ""} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>
@@ -357,7 +360,9 @@ function FocusList({ focus, act }: { focus: Focus[]; act: (id: string, action: s
                   <td>{r?.contacts ? <a href="#people" title="Your LinkedIn contacts there (People)">{r.contacts}</a> : <span className="muted">–</span>}</td>
                   <td className="small">
                     {f.status === "found" ? <span className="status status-green">{atsLabel(f.ats)}{f.watch ? "" : " · off"}</span>
-                      : f.status === "not_found" ? <><span className="muted">none readable</span> <AddCareers onAdd={(url, pattern) => act(f.id, "careers", { url, pattern }, `${f.name}: career page added`)} /></>
+                      : f.status === "not_found" ? <>{f.ba_watch
+                          ? <span className="status status-blue" title="No readable career site; its jobs come from the Arbeitsagentur by employer, also in the fast lane">via Arbeitsagentur</span>
+                          : <span className="muted">not covered</span>} <AddCareers onAdd={(url, pattern) => act(f.id, "careers", { url, pattern }, `${f.name}: career page added`)} /></>
                       : <span className="muted">to check</span>}
                   </td>
                 </tr>

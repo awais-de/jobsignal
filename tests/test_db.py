@@ -33,3 +33,21 @@ def test_bulk_insert_sends_uniform_rows():
     ids = db.insert_postings([cand(1, True), cand(2, False), cand(3, True)])
     assert ids == {"1": "id-1", "2": "id-2", "3": "id-3"}
     assert len(batches) == 2
+
+
+def test_failing_sources_counts_each_sources_own_last_tries():
+    runs = [{"id": f"r{i}"} for i in range(6)]          # newest first
+    tries = {  # source -> statuses in the runs it was tried (run index, status)
+        "careers:Down": [(0, "failed"), (1, "failed"), (3, "failed")],     # skipped in run 2: still 3 failed tries
+        "careers:Flaky": [(0, "failed"), (1, "success"), (2, "failed"), (3, "failed")],
+        "careers:New": [(0, "failed"), (1, "failed")],                     # only 2 tries so far
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/pipeline_runs"):
+            return httpx.Response(200, json=runs)
+        return httpx.Response(200, json=[{"source": s, "status": st, "pipeline_run_id": f"r{i}"}
+                                         for s, t in tries.items() for i, st in t])
+
+    client = httpx.Client(base_url="https://db.example/rest/v1", transport=httpx.MockTransport(handler))
+    assert Database("https://db.example", "key", client=client).failing_sources("careers:") == {"careers:Down"}

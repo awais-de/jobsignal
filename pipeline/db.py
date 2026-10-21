@@ -61,6 +61,25 @@ class Database:
             "started_at": f"gte.{since.isoformat()}", "limit": 1})
         return bool(rows)
 
+    def failing_sources(self, prefix: str, attempts: int = 3, window: int = 10) -> set[str]:
+        """Sources (starting with `prefix`) whose last `attempts` tries, within the last `window` finished
+        runs, all failed. Skipped runs don't count as tries; once a source's failures leave the window
+        (~5 hours of fast runs) it is tried again."""
+        last = self._req("GET", "/pipeline_runs", params={
+            "select": "id", "status": "in.(success,failed)", "dry_run": "eq.false",
+            "order": "started_at.desc", "limit": window})
+        order = {r["id"]: i for i, r in enumerate(last)}          # 0 = newest
+        if not order:
+            return set()
+        rows = self._req("GET", "/source_runs", params={
+            "select": "source,status,pipeline_run_id", "source": f"like.{prefix}*",
+            "pipeline_run_id": f"in.({','.join(order)})"})
+        tries: dict[str, list[tuple[int, str]]] = {}
+        for r in rows:
+            tries.setdefault(r["source"], []).append((order[r["pipeline_run_id"]], r["status"]))
+        return {s for s, t in tries.items()
+                if len(t) >= attempts and all(status == "failed" for _, status in sorted(t)[:attempts])}
+
     def has_successful_run(self) -> bool:
         rows = self._req("GET", "/pipeline_runs", params={"select": "id", "status": "eq.success", "dry_run": "eq.false", "limit": 1})
         return bool(rows)

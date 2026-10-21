@@ -231,6 +231,14 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     alerts = StepstoneAlerts(db, now - timedelta(days=14)) if db and sources_cfg.get("alerts", {}).get("stepstone", True) else None
     if alerts:
         fetchers.append((alerts.name, alerts.name, alerts.fetch))
+    # The fast lane skips a career site whose last 3 tries failed (2026-10-21: a site down for hours cost
+    # ~60 s of timeouts every half hour); the daily run still tries it, and a success there brings it back.
+    failing = _optional("failing sources", lambda: db.failing_sources("careers:")) if db and fast else None
+    if isinstance(failing, set) and failing:
+        before = len(watchlist)
+        watchlist = [c for c in watchlist if f"careers:{c['name']}" not in failing]
+        stats["skipped_failing"] = before - len(watchlist)
+        log.info("fast lane: %d career site(s) skipped after 3 failed runs", before - len(watchlist))
     for i, company in enumerate(watchlist, 1):
         # Company names are private: the public log only says 'careers#N'.
         fetchers.append((f"careers:{company['name']}", f"careers#{i}", lambda c=company: careers.fetch_company(c)))

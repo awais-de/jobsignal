@@ -69,6 +69,11 @@ const COMPANY_IN_TEXT = [
   /(?:ihre|deine) bewerbung (?:bei|an) (?:der |die |dem )?([A-ZÄÖÜ][\w&.\-' ]{1,60}?)(?:[,.!:\n]| als | für | - | – |$)/,
   /(?:your application (?:to|at|with)|applying (?:to|at)|interest in (?:joining |working at )?)([A-Z][\w&.\-' ]{1,60}?)(?:[,.!:\n]| for | as | - | – |$)/,
 ];
+// A signature line that is only a name with a legal form ("Beispielbank Musterstadt eG"), for HR-system mail
+// whose text never says "bei der …" (2026-10-21: a Volksbank rejection via geno.HR was filed under 'geno.').
+const COMPANY_SIGNATURE_LINE =
+  /^[ \t]*(\p{Lu}[\p{L}\p{N}&.\-]+(?: [\p{Lu}&][\p{L}\p{N}&.\-]+){0,4} (?:GmbH & Co\. KG|GmbH|AG|SE|KGaA|KG|eG|mbH|UG|OHG|e\. ?V\.))[ \t\u3000]*$/mu;
+
 // "… Interesse an einer Beschäftigung bei der Volksbank Mittweida eG": a name with a legal form after
 // bei/at, with an optional article. Matched on the text with line breaks flattened (names wrap).
 const COMPANY_WITH_LEGAL_FORM =
@@ -193,6 +198,7 @@ export function extractFields(fromName: string, fromDomain: string, subject: str
   // From an HR system, the display name is often the system's own ("geno.", "CHECK IN"): the body's
   // name with a legal form goes first.
   if (!company && ats) company = flat.match(COMPANY_WITH_LEGAL_FORM)?.[1].trim() ?? null;
+  if (!company && ats) company = body.slice(0, 6000).match(COMPANY_SIGNATURE_LINE)?.[1].trim() ?? null;
   const name = fromName.replace(/["']/g, "").trim();
   // "Anna Muster" <anna.muster@beispiel.de> is a person writing, not the company's name: two or more
   // name words, all in a first.last / first_last address.

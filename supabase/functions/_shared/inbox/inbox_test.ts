@@ -193,3 +193,25 @@ Deno.test("company: subject '| Company', a person's display name is not a compan
   assert(sameCompany("ABC AG", "ABC Deutschland GmbH"));      // short name as the leading word
   assert(!sameCompany("ABC", "Paradies ABC GmbH"));
 });
+
+// 2026-10-21: a rejection via an HR system (geno.HR / Peras) was filed as a confirmation under 'geno.'.
+Deno.test("an HR-system rejection: 'bedauerlicherweise … keine Stelle anbieten', company from the signature", () => {
+  const body = `Guten Tag Frau Muster,
+vielen Dank für Ihre Bewerbung und Ihr Interesse an unserem Unternehmen.
+Das deutsche Sprachniveau von mindestens C1 ist für uns eine wesentliche Voraussetzung.
+Bedauerlicherweise können wir Ihnen aufgrund dieser Anforderung momentan
+keine Stelle anbieten.
+Wir wünschen Ihnen alles Gute für Ihre berufliche Zukunft.
+Freundliche Grüße
+Ihr Recruiting-Team
+Beispielbank Musterstadt eG
+Telefon: 01234 5678
+-----------------------------------------------------------　
+Beispielbank Musterstadt eG
+Eingetragen: GenR 5, Amtsgericht Musterstadt`;
+  const flatBody = body.replace(/\n/g, " ");
+  assertEquals(classify("geno.hr.peras.de", "Rückmeldung zu Ihrer Bewerbung", flatBody).category, "rejection");
+  assertEquals(classify("geno.hr.peras.de", "Rückmeldung zu Ihrer Bewerbung", body).category, "rejection");
+  assertEquals(extractFields("geno.HR", "geno.hr.peras.de", "Rückmeldung zu Ihrer Bewerbung", body, "noreply").company,
+               "Beispielbank Musterstadt eG");
+});

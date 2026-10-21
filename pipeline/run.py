@@ -145,7 +145,10 @@ def main(argv: list[str] | None = None) -> int:
         log.info("run finished: %s", _fmt(stats))
         return 0
     except Exception as exc:  # noqa: BLE001 - the whole point is to catch everything here
-        err = f"{type(exc).__name__}: {exc}"
+        # The private run record keeps where it failed (the public log only the exception's name).
+        frames = traceback.extract_tb(exc.__traceback__)
+        where = " < ".join(f"{f.name}:{f.lineno}" for f in reversed(frames[-4:]))
+        err = f"{type(exc).__name__}: {exc} [at {where}]"
         log.error("run failed: %s", type(exc).__name__)
         if run_id:
             try:
@@ -168,6 +171,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     instant email with what's new instead of the digest (none when nothing is)."""
     now = datetime.now(timezone.utc)
     stats: dict[str, Any] = {}
+    t_phase = time.monotonic()
 
     # 1. fetch, each source isolated (spec 7.1)
     ba_cfg = sources_cfg.get("ba_api", {})
@@ -256,6 +260,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         if r.source.startswith("alert") and r.poster_type is None and any(x in r.company_name.lower() for x in agencies):
             r.poster_type = "agency"
 
+    _phase("fetch", t_phase); t_phase = time.monotonic()
     # 2. dedupe (hand-added postings first get their real hash, so a job applied to by hand
     #    isn't surfaced again when a source lists it)
     if run_id and db:
@@ -277,11 +282,13 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     # Known watchlist pages arrive as stubs (not refetched); they only refresh last_seen_at.
     candidates = [c for c in candidates if not (c.raw.source_data.get("stub") and c.is_new)]
 
+    _phase("dedupe", t_phase); t_phase = time.monotonic()
     # 3. hard filters
     first_run = not db.has_successful_run() if db else True
     filters = HardFilters(profile, first_run=first_run, now=now)
     filters.apply(candidates)
 
+    _phase("filters", t_phase); t_phase = time.monotonic()
     # 4. details (description, agency flags) for survivors only
     passed = [c for c in candidates if c.is_new and c.passed]
     cap = int(ba_cfg.get("max_detail_fetches", 150))
@@ -300,6 +307,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
                 c.filter_reasons.append("agency")
         passed = [c for c in passed if c.passed]
 
+    _phase("details", t_phase); t_phase = time.monotonic()
     # 5. extraction, dealbreakers, ranking (spec 7.5, 7.9). New postings first, then the backlog.
     #    Explore-lane jobs get a smaller budget: those mentioning most of the owner's skills first;
     #    the rest stay pending and the backlog picks them up on later runs.
@@ -330,6 +338,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     passed = [c for c in passed if c.passed]
     backlog = _process_backlog(enricher, db, write=bool(run_id), now=now) if db and not fast else {}
 
+    _phase("analysis", t_phase); t_phase = time.monotonic()
     # 6. write
     new = [c for c in candidates if c.is_new]
     known_ids = [c.existing_id for c in candidates if c.existing_id]
@@ -396,6 +405,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # Retention (spec 13): email bodies are kept for 12 months.
         stats["purged_email_bodies"] = db.purge_old_email_bodies(int(tracking.get("email_body_retention_months", 12)))
 
+    _phase("write", t_phase); t_phase = time.monotonic()
     # 7. digest (the fast lane: an instant email with what's new, nothing when nothing is)
     secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
     links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
@@ -565,6 +575,11 @@ def _ghost(db: Database, sources_cfg: dict[str, Any], now: datetime) -> dict[str
         out[t["id"]] = (bucket, ghost.reasons(signals))
     db.set_ghost_scores(rows)
     return out
+
+
+def _phase(name: str, since: float) -> None:
+    """Phase durations in the public log (counts and seconds only)."""
+    log.info("phase %s: %.0f s", name, time.monotonic() - since)
 
 
 def _optional(step: str, fn):

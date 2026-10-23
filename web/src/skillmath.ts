@@ -99,12 +99,6 @@ export function currentRatings(history: Rating[]) {
   return { cur, prev };
 }
 
-/** The base rating as it was at a moment (e.g. when applying): the latest recorded before it. */
-export function ratingAt(history: Rating[], skillId: string, at: string): number | null {
-  const r = history.filter((h) => h.skill_id === skillId && h.rated_at <= at).sort((a, b) => b.rated_at.localeCompare(a.rated_at))[0];
-  return r ? r.rating : null;
-}
-
 export type Quadrant = "strength" | "learn" | "niche" | "ignore";
 export const QUADRANTS: Record<Quadrant, string> = {
   strength: "Strengths", learn: "Learn next", niche: "Niche strengths", ignore: "Ignore for now",

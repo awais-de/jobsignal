@@ -96,7 +96,6 @@ def apply_dedupe(candidates: list[Candidate], stored: list[StoredPosting],
                 c.repost_of = oldest.id
                 c.filter_reasons.append("repost")
             else:
-                c.duplicate_of = oldest.id
                 c.filter_reasons.append("duplicate")
             continue
         if canonical:
@@ -111,7 +110,6 @@ def apply_dedupe(candidates: list[Candidate], stored: list[StoredPosting],
                 if not c.raw.description and best.has_description:
                     actions.inherit.append((c, best.id))
             else:
-                c.duplicate_of = best.id
                 c.filter_reasons.append("duplicate")
                 if c.raw.description and not best.has_description:
                     actions.enrich.append((best.id, c.raw.description))

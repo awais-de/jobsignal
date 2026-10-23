@@ -6,7 +6,6 @@ Every call is recorded for llm_usage; results are cached by stage + prompt versi
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 from typing import Any, Callable
@@ -107,7 +106,3 @@ def build_router(cfg: dict[str, Any], stage: str, cache_get: Callable[[str], dic
     if not providers:
         log.warning("no LLM provider available for stage %s", stage)
     return Router(providers, max_calls=int(stage_cfg.get("max_calls_per_run", 60)), cache_get=cache_get)
-
-
-def canonical_json(data: Any) -> str:
-    return json.dumps(data, sort_keys=True, ensure_ascii=False)

@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from html import unescape
-from typing import Any, Iterable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pipeline.config import load_config
@@ -169,10 +169,3 @@ def run(db: Any, today: date, back: int = 1, config: dict[str, Any] | None = Non
         db.replace_skill_demand(week, rows)
         written[week.isoformat()] = len(rows)
     return written
-
-
-def shares(rows: Iterable[dict[str, Any]]) -> dict[str, float]:
-    """Company share per skill from one (week, scope, family) group of rows (used by tests and the CLI)."""
-    rows = list(rows)
-    total = next((r["companies"] for r in rows if r["skill"] == TOTAL), 0)
-    return {r["skill"]: r["companies"] / total for r in rows if r["skill"] != TOTAL and total}

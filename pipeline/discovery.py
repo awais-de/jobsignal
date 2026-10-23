@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from pipeline.discovery_names import GENERIC, tokens  # noqa: F401  (re-exported)
+from pipeline.discovery_names import tokens
 from pipeline.sources.ats import ATS, PROBE_ORDER
 from pipeline.website import discover_via_website
 

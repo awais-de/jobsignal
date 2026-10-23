@@ -13,6 +13,14 @@ CATALOG = [{"id": "s-ai", "name": "Artificial Intelligence", "name_key": "artifi
            {"id": "s-sql", "name": "Structured Query Language", "name_key": "structured query language", "aliases": ["t-sql"]},
            {"id": "s-wb", "name": "Widget Builder", "name_key": "widget builder", "aliases": ["widgetbuilder"]}]
 
+
+def shares(rows):
+    """Company share per skill from one (week, scope, family) group of rows."""
+    rows = list(rows)
+    total = next((r["companies"] for r in rows if r["skill"] == sd.TOTAL), 0)
+    return {r["skill"]: r["companies"] / total for r in rows if r["skill"] != sd.TOTAL and total}
+
+
 PAD = " Lorem ipsum dolor sit amet, consectetur adipiscing elit." * 6
 
 
@@ -35,7 +43,7 @@ def test_companies_count_once_and_boilerplate_and_benefits_are_cut():
             for i in range(4)]
     rows.append(post(9, "muster", "core_data", "Your tasks\nBuild SQL models.\nBenefits\nPython snacks."))
     out = sd.compute(rows, sd.vocabulary(CATALOG, CONFIG), date(2026, 10, 19))
-    s = sd.shares(r for r in out if r["scope"] == "all" and r["family"] == "core_data")
+    s = shares(r for r in out if r["scope"] == "all" and r["family"] == "core_data")
     assert s["SQL"] == 1.0                 # both companies
     assert s["Python"] == 0.5              # only Beispiel: Muster's Python is in the benefits
     assert "Artificial Intelligence" not in s    # Beispiel's intro is boilerplate, its benefits are cut
@@ -48,7 +56,7 @@ def test_scopes_and_the_all_family():
     out = sd.compute(rows, sd.vocabulary([], CONFIG), date(2026, 10, 19))
     fams = {(r["scope"], r["family"]) for r in out if r["skill"] == "*"}
     assert fams == {("all", "core_data"), ("all", "ai_ml"), ("all", "all"), ("stable", "core_data"), ("stable", "all")}
-    assert sd.shares(r for r in out if r["scope"] == "all" and r["family"] == "all")["Python"] == 1.0
+    assert shares(r for r in out if r["scope"] == "all" and r["family"] == "all")["Python"] == 1.0
 
 
 def test_postings_without_family_or_text_are_left_out():

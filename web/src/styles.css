@@ -342,10 +342,7 @@ button.x { border: none; background: none; color: var(--muted); padding: 0 4px; 
 .tester input { flex: 1 1 320px; }
 .track { border-top: 1px solid var(--border); padding: 6px 0; }
 .track summary { cursor: pointer; padding: 4px 0; display: flex; gap: 8px; align-items: center; }
-.skill-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 3px 0; }
-.skill-name { font-weight: 600; font-size: 14px; min-width: 150px; }
 .aliases { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; flex: 1 1 300px; }
-.profile .alias-input { width: 110px; font-size: 12px; padding: 2px 6px; }
 .watch-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
 .watch-row .grow { flex: 1 1 260px; }
 
@@ -421,7 +418,6 @@ a.link-button.small { padding: 3px 10px; font-size: 13px; }
 .job-side h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
 .job-side h3:not(:first-child) { margin-top: 14px; }
 .small-text { font-size: 13px; }
-.req-skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .skill.plain { background: var(--chip); color: var(--muted); }
 .jd.jd-full { max-height: 70vh; }
 .group-by { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
@@ -570,36 +566,14 @@ textarea.person-notes {
 .cv-field { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 .cv-section { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
 .cv-section h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
-.cv-section.off .cv-section-head { opacity: 0.6; }
-.cv-section-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cv-title-input {
-  font: inherit; font-size: 14px; font-weight: 700; color: var(--text); background: transparent;
-  border: 1px solid transparent; border-radius: 6px; padding: 2px 6px; min-width: 0; flex: 0 1 240px;
-}
-.cv-title-input:hover, .cv-title-input:focus { border-color: var(--border); outline: none; }
 .mcv-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
 .mcv-tools select, .cv-builder select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
-.cv-body { margin: 6px 0 4px 22px; }
-.cv-entry { margin-bottom: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
-.cv-entry:last-of-type { border-bottom: none; }
-.cv-entry.off .cv-entry-head { opacity: 0.55; }
-.cv-entry-head { display: flex; align-items: center; gap: 8px; }
-.cv-entry-head .check { display: flex; gap: 6px; align-items: baseline; font-size: 14px; }
 .cv-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; margin: 6px 0 2px; }
 .cv-slots .cv-field.wide { grid-column: 1 / -1; }
-@media (max-width: 600px) { .cv-slots { grid-template-columns: 1fr; } .cv-body { margin-left: 0; } .cv-section-head > .muted { display: none; } }
-.cv-ticks { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px; }
+@media (max-width: 600px) { .cv-slots { grid-template-columns: 1fr; } }
 .cv-tick { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; color: var(--muted); cursor: pointer; }
 .cv-tick input { margin-top: 3px; flex: 0 0 auto; }
 .cv-tick.on { color: var(--text); }
-.cv-bullets { margin: 2px 0 4px; }
-.cv-bullet { display: flex; gap: 6px; align-items: flex-start; margin: 3px 0; }
-.cv-dot { color: var(--muted); padding-top: 5px; }
-.cv-bullet-tools { display: inline-flex; flex: 0 0 auto; }
-.cv-rows { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
-.cv-rowedit-line { display: flex; gap: 6px; align-items: flex-start; }
-.cv-builder .cv-row-label { flex: 0 0 170px; min-width: 0; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; }
-@media (max-width: 600px) { .cv-rowedit-line { flex-wrap: wrap; } .cv-builder .cv-row-label { flex-basis: 100%; } }
 .cv-contacts { display: flex; flex-wrap: wrap; gap: 4px; }
 .cv-contacts .tick { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 2px 6px; border-radius: 10px; background: var(--chip); }
 .cv-contacts .inline-input { font: inherit; font-size: 12px; color: var(--text); background: transparent; border: none; max-width: 100%; }
@@ -842,13 +816,6 @@ ul.rating-list li.focus { background: var(--warn-bg); border-radius: 6px; paddin
 .cat-labels input { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; flex: 1 1 200px; }
 .cat-labels input[type="number"] { flex: 0 0 56px; }
 .skills .register .wide-input { width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
-.cv-db-skills { margin-bottom: 6px; }
-.skill-ticks { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
-.skill-ticks .tick { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); cursor: pointer; }
-.skill-ticks .tick.on { background: #ddf4ff; color: #0550ae; }
-.skill-ticks .tick.asked { box-shadow: inset 0 0 0 1px var(--accent); }
-.skill-ticks .tick input { margin: 0; }
-@media (prefers-color-scheme: dark) { .skill-ticks .tick.on { background: #0c2d6b; color: #a5d6ff; } }
 .market-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .spark { color: var(--accent); vertical-align: middle; }
 .market-card { max-width: 1100px; margin-bottom: 26px; }

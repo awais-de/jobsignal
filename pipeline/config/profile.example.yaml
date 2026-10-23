@@ -25,7 +25,6 @@ titles:
 
 location:
   country: 'DE'
-  allow_remote: true
 
 contract_types: ['full_time']
 

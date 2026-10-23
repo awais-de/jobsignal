@@ -213,16 +213,6 @@ export type CvDraft = { v: 1; header: DHeader; sections: DSection[] };
 
 export type SkillGroup = { cat: string; label: string; items: { id: string; name: string; on: boolean; asked?: boolean }[]; order?: number };
 
-// Copy-on-tick (owner decision R2): ticking copies a text into the editable one; unticking removes it again.
-export const appendPart = (text: string, part: string, sep = ", ") => (text.trim() ? `${text.trim()}${sep}${part}` : part);
-export function removePart(text: string, part: string, sep = ", "): string {
-  const parts = text.split(sep.trim()).map((p) => p.trim());
-  const i = parts.indexOf(part.trim());
-  if (i < 0) return text;
-  parts.splice(i, 1);
-  return parts.filter(Boolean).join(sep);
-}
-
 const emptySection = (key: string, title: string, style: Style): DSection =>
   ({ key, on: false, title, style, into: null, text: "", bullets: [], entries: [], rows: [], picked: [] });
 
@@ -275,22 +265,6 @@ export function initialDraft(f: CvFormat, m: Master, skills: SkillGroup[]): CvDr
     }
   }
   return { v: 1, header, sections };
-}
-
-/** A saved draft after the master changed: new records are offered (unticked), new sections added (off). */
-export function reconcile(d: CvDraft, f: CvFormat, m: Master): CvDraft {
-  const sections = d.sections.map((s) => {
-    if (s.style !== "entries") return s;
-    const have = new Set(s.entries.map((e) => e.src));
-    const fresh = m.roots(s.key).filter((i) => !have.has(i.id)).map((i) => newEntry(i, m, f, false));
-    return fresh.length ? { ...s, entries: [...s.entries, ...fresh] } : s;
-  });
-  for (const spec of SECTIONS) if (!sections.some((s) => s.key === spec.key)) {
-    const s = emptySection(spec.key, spec.title[f.lang], spec.style);
-    if (s.style === "entries") s.entries = m.roots(spec.key).map((i) => newEntry(i, m, f, false));
-    sections.push(s);
-  }
-  return { ...d, sections };
 }
 
 /** The bullet sources of an entry: its children and the achievements linked to it. */

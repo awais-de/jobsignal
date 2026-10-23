@@ -29,7 +29,7 @@ import httpx
 
 from pipeline.actions import action_links
 from pipeline.config import ConfigError, load_config, load_profile, load_sources, validate_profile
-from pipeline import cv_compile, ghost
+from pipeline import cv_compile, ghost, skill_demand
 from pipeline.enrich import Enricher
 from pipeline.rank import keyword_overlap, score
 from pipeline.skills_db import skills_from_rows
@@ -64,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="the fast lane: quick sources and group-A career sites, an instant email with what's new")
     parser.add_argument("--discovery-sweep", action="store_true",
                         help="one-off: check every relevant company (groups A and B) for a readable career site")
+    parser.add_argument("--skill-demand", type=int, metavar="WEEKS_BACK",
+                        help="one-off: compute the market demand per skill for this week and WEEKS_BACK weeks before")
     parser.add_argument("--rerank-only", action="store_true",
                         help="only re-rank stored jobs after a profile change; no fetch, no email")
     args = parser.parse_args(argv)
@@ -81,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.discovery_sweep:
         return discovery_sweep()
+    if args.skill_demand is not None:
+        db = Database.from_env()
+        if db is None:
+            log.error("SUPABASE_URL and SUPABASE_SECRET_KEY must be set.")
+            return 1
+        written = skill_demand.run(db, datetime.now(skill_demand.BERLIN).date(), back=args.skill_demand)
+        log.info("skill demand: %d weeks, %d rows", len(written), sum(written.values()))
+        return 0
     if args.rerank_only:
         db = Database.from_env()
         if db is None:
@@ -412,6 +422,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         # Auto-expiry of silent applications (spec 4.3 step 7, 10.6)
         tracking = load_config("tracking.yaml")
         stats["expired_applications"] = db.expire_stale_applications(int(tracking.get("auto_expiry_days", 30)))
+        # Market demand per skill (owner request 2026-10-23): this week and last, while the texts still exist.
+        demand = _optional("skill demand", lambda: skill_demand.run(db, datetime.now(skill_demand.BERLIN).date()))
+        if isinstance(demand, dict):
+            stats["skill_demand_rows"] = sum(demand.values())
         # CV previews (owner decision 2026-10-19): unsaved compiles go after 30 days.
         stats["cv_previews_pruned"] = _optional("cv previews", lambda: cv_compile.prune_stale(30))
         # Retention (spec 13): email bodies are kept for 12 months.

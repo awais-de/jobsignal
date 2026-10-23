@@ -5,6 +5,7 @@ import {
 } from "./skillmath";
 import { scheduleRerank, useRerankPending, useSkills, type Category } from "./skills-data";
 import { supabase } from "./supabase";
+import { marketFor, missing, TREND_WEEKS, useMarket, type MarketSkill, type Scope } from "./market";
 
 // Skills database (owner decisions 2026-10-14): how often each skill is asked for, how strong you are in
 // it, and what to learn next. Base ratings change only here, by recording an improvement.
@@ -42,7 +43,7 @@ export default function Skills() {
         <button className={tab === "new" ? "active" : ""} onClick={() => setTab("new")}>New skills <span className="day-count">{queue.length}</span></button>
       </div>
       {tab === "gaps" && (
-        <Gaps d={d} filter={filter} setFilter={setFilter} families={families} ratingOf={sk.ratingOf}
+        <Gaps d={d} sk={sk} filter={filter} setFilter={setFilter} families={families} ratingOf={sk.ratingOf}
               onRate={(id) => { setFocus(id); setTab("ratings"); }} unmatched={queue.length} toNew={() => setTab("new")} />
       )}
       {tab === "ratings" && <Ratings sk={sk} focus={focus} />}
@@ -57,11 +58,14 @@ function RerankNotice() {
 }
 
 // -- demand & gaps ------------------------------------------------------------------------------
-function Gaps({ d, filter, setFilter, families, ratingOf, onRate, unmatched, toNew }: {
-  d: ReturnType<typeof demand>; filter: Filter; setFilter: (f: Filter) => void; families: { key: string; label: string }[];
+function Gaps({ d, sk, filter, setFilter, families, ratingOf, onRate, unmatched, toNew }: {
+  d: ReturnType<typeof demand>; sk: ReturnType<typeof useSkills>; filter: Filter; setFilter: (f: Filter) => void; families: { key: string; label: string }[];
   ratingOf: (id: string) => number | null; onRate: (id: string) => void; unmatched: number; toNew: () => void;
 }) {
   const [showIgnore, setShowIgnore] = useState(false);
+  const [scope, setScope] = useState<Scope>("all");
+  const market = useMarket(filter.family, scope);
+  const absent = useMemo(() => (market ? missing(market, sk.catalog ?? []) : []), [market, sk.catalog]);
   const groups = useMemo(() => {
     const g: Record<Quadrant, Demand[]> = { learn: [], strength: [], niche: [], ignore: [] };
     for (const r of d.rows) g[quadrant(r.share, ratingOf(r.skill.id))].push(r);
@@ -83,6 +87,10 @@ function Gaps({ d, filter, setFilter, families, ratingOf, onRate, unmatched, toN
         <select value={filter.days} onChange={(e) => setFilter({ ...filter, days: Number(e.target.value) })} aria-label="Period">
           <option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={365}>Last year</option>
         </select>
+        <select value={scope} onChange={(e) => setScope(e.target.value as Scope)} aria-label="Market sources"
+                title="Market figures: every source, or only the job boards whose coverage doesn't grow as career sites are added">
+          <option value="all">Market: all sources</option><option value="stable">Market: job boards only</option>
+        </select>
         <span className="filter-count">{d.population} analysed jobs</span>
       </div>
       <p className="muted small">
@@ -91,23 +99,37 @@ function Gaps({ d, filter, setFilter, families, ratingOf, onRate, unmatched, toN
         {unratedHigh > 0 && <> <strong>{unratedHigh} high-demand skill{unratedHigh > 1 ? "s are" : " is"} not rated yet.</strong></>}
         {unmatched > 0 && <> {unmatched} skill names from job ads aren't in the catalogue yet: <button className="link" onClick={toNew}>map them</button> for accurate figures.</>}
       </p>
+      {market && (
+        <p className="muted small">
+          Market = share of companies in {filter.family ? "this family" : "your job families"} whose postings mention the skill
+          (every posting seen, not only your feed; last {market.recentWeeks} week{market.recentWeeks === 1 ? "" : "s"}, up to {market.companies} companies a week).
+          {market.weeks.length < TREND_WEEKS
+            ? <> The weekly trend appears after {TREND_WEEKS} weeks ({market.weeks.length} so far).</>
+            : <> The line shows the weekly share.</>}
+        </p>
+      )}
+      {market && absent.length > 0 && (
+        <MissingSkills absent={absent} sk={sk} />
+      )}
       {d.population < 50 && <p className="notice">Only {d.population} jobs in this group: treat the percentages as rough until more jobs are analysed.</p>}
       {(["learn", "strength", "niche", "ignore"] as Quadrant[]).map((q) => (
         (q !== "ignore" || showIgnore) ? (
           <section key={q} className="card skill-group">
             <h3>{QUADRANTS[q]} <span className="muted small">{groups[q].length}</span></h3>
             {groups[q].length === 0 ? <p className="muted small">None.</p> : (
-              <div className="table-wrap"><table className="apps">
-                <thead><tr><th>Skill</th><th>Demand</th><th>Must-have</th><th>Your rating</th><th>Trend</th>{q === "learn" && <th>Priority</th>}</tr></thead>
+              <div className="table-wrap"><table className="apps gaps-table">
+                <thead><tr><th>Skill</th><th>Demand</th><th>Must-have</th><th title="Share of companies in the market">Market</th><th>Your rating</th><th>Trend</th>{q === "learn" && <th>Priority</th>}</tr></thead>
                 <tbody>
                   {groups[q].slice(0, q === "ignore" ? 200 : 60).map((r) => {
                     const rating = ratingOf(r.skill.id);
                     const trend = r.earlier + r.recent < 2 ? "–" : r.recent > r.earlier * 1.3 ? "▲" : r.recent < r.earlier * 0.7 ? "▼" : "→";
+                    const m = market ? marketFor(market, r.skill) : undefined;
                     return (
                       <tr key={r.skill.id}>
                         <td className="strong">{r.skill.name}</td>
                         <td><div className="share"><div className="share-fill" style={{ width: pct(Math.min(1, r.share)) }} /><span>{pct(r.share)}</span></div></td>
                         <td>{pct(r.mustShare)}</td>
+                        <td><MarketCell m={m} loading={!market} /></td>
                         <td><button className="link" onClick={() => onRate(r.skill.id)}>{rating == null ? "rate" : `${rating}/10`}</button>
                           {rating != null && <span className="muted small"> {anchor(rating)}</span>}</td>
                         <td title="Second half of the period vs the first half">{trend}</td>
@@ -123,6 +145,53 @@ function Gaps({ d, filter, setFilter, families, ratingOf, onRate, unmatched, toN
       ))}
       {!showIgnore && <button className="link" onClick={() => setShowIgnore(true)}>Show “{QUADRANTS.ignore}” ({groups.ignore.length})</button>}
     </>
+  );
+}
+
+/** Market share, with the weekly line once there are enough weeks. */
+function MarketCell({ m, loading }: { m: MarketSkill | undefined; loading: boolean }) {
+  if (loading) return <span className="muted">…</span>;
+  if (!m) return <span className="muted" title="Not mentioned in the market postings">0%</span>;
+  return <span className="market-cell">{pct(m.share)}{m.weekly.length >= TREND_WEEKS && <Sparkline points={m.weekly} />}</span>;
+}
+
+function Sparkline({ points }: { points: { week: string; share: number }[] }) {
+  const w = 56, h = 16, max = Math.max(...points.map((p) => p.share), 0.01);
+  const xy = points.map((p, i) => [2 + (i * (w - 4)) / Math.max(1, points.length - 1), h - 2 - (p.share / max) * (h - 4)]);
+  const label = points.map((p) => `${new Date(p.week).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}: ${pct(p.share)}`).join("\n");
+  return (
+    <svg className="spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Weekly share: ${label}`}>
+      <title>{`Share of companies by week\n${label}`}</title>
+      <polyline points={xy.map(([x, y]) => `${x},${y}`).join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={xy[xy.length - 1][0]} cy={xy[xy.length - 1][1]} r="2.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Skills the market asks for that aren't in the catalogue (so they can't count in ranking or here yet). */
+function MissingSkills({ absent, sk }: { absent: MarketSkill[]; sk: ReturnType<typeof useSkills> }) {
+  const [adding, setAdding] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  return (
+    <section className="card skill-group">
+      <h3>In demand, not in your skills <span className="muted small">{absent.length}</span></h3>
+      <p className="muted small">Asked for by 5%+ of companies in the market. Add the ones you have, then rate them: they then count in job ranking.</p>
+      <div className="table-wrap"><table className="apps">
+        <thead><tr><th>Skill</th><th>Market</th><th></th></tr></thead>
+        <tbody>
+          {absent.slice(0, all ? 100 : 12).map((m) => (
+            <tr key={m.skill}>
+              <td className="strong">{m.skill}</td>
+              <td><span className="market-cell">{pct(m.share)}{m.weekly.length >= TREND_WEEKS && <Sparkline points={m.weekly} />}</span></td>
+              <td>{adding === m.skill
+                ? <AddSkill sk={sk} name={m.skill} onDone={() => setAdding(null)} />
+                : <button className="link" onClick={() => setAdding(m.skill)}>Add to my skills</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+      {absent.length > 12 && !all && <button className="link" onClick={() => setAll(true)}>Show all ({absent.length})</button>}
+    </section>
   );
 }
 

@@ -264,6 +264,29 @@ class Database:
         rows = self._req("GET", "/owner_profile", params={"select": "profile,version", "id": "eq.1"})
         return (rows[0]["profile"], rows[0]["version"]) if rows else None
 
+    # -- market demand (pipeline/skill_demand.py) -----------------------------------------
+    def skill_catalog(self) -> list[dict[str, Any]]:
+        return self._req("GET", "/skills", params={"select": "id,name,name_key,aliases", "deleted_at": "is.null"})
+
+    def postings_for_demand(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        """Postings in a job family, first seen in [start, end), with their text."""
+        out, offset = [], 0
+        while True:
+            rows = self._req("GET", "/job_postings", params={
+                "select": "id,company_key,title,description,title_family,source",
+                "title_family": "not.is.null", "description": "not.is.null", "deleted_at": "is.null",
+                "and": f"(first_seen_at.gte.{start.isoformat()},first_seen_at.lt.{end.isoformat()})",
+                "order": "id", "limit": 500, "offset": offset})
+            out.extend(rows)
+            if len(rows) < 500:
+                return out
+            offset += 500
+
+    def replace_skill_demand(self, week: date, rows: list[dict[str, Any]]) -> None:
+        self._req("DELETE", "/skill_demand_weekly", params={"week_start": f"eq.{week.isoformat()}"})
+        for chunk in _chunks(rows, 500):
+            self._req("POST", "/skill_demand_weekly", json=chunk, headers={"Prefer": "return=minimal"})
+
     def postings_to_rerank(self, since: datetime) -> list[dict[str, Any]]:
         return self._req("GET", "/job_postings", params={
             "select": "id,must_have_skills,nice_to_have_skills,remote_policy,rank_details",

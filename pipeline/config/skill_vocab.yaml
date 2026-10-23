@@ -1,0 +1,107 @@
+# Market demand vocabulary (skill_demand.py): terms searched for in the job part of each posting.
+# - pattern: a regular expression; case-insensitive unless `case: true`
+# - covers: other names (lower case) of the same skill, to link the term to a skill in the catalogue
+# - generic: a broad term, shown in the figures but never suggested as a missing skill
+# Skills in the catalogue that no term covers are matched by their name and aliases automatically.
+# STARTING VALUE: built from the first analysis (2026-10-23) over ~2,400 postings.
+
+terms:
+  # languages
+  - {name: Python, pattern: '\bPython\b'}
+  - {name: SQL, pattern: '\b(T-?SQL|PL/?SQL|SQL)\b', covers: [t-sql, pl/sql, tsql]}
+  - {name: Java, pattern: '\bJava\b(?!\s*Script)'}
+  - {name: Scala, pattern: '\bScala\b'}
+  - {name: R, pattern: '(?<![\w-])R(?![\w-])(?=[^.]{0,40}(statist|programm|python|sprache|language))', case: true}
+  - {name: Go, pattern: '\bGolang\b|(?<![\w-])Go(?![\w-])(?![- ]?[Ll]ive)(?=[^.]{0,60}(C\+\+|Rust|Python|Java|Kotlin|programm|backend|language|Sprache))', case: true, covers: [golang]}
+  - {name: C++, pattern: 'C\+\+', covers: [cpp]}
+  - {name: C#, pattern: 'C#|\.NET\b|\bdotnet\b', case: true, covers: [.net, dotnet]}
+  - {name: TypeScript, pattern: '\bTypeScript\b'}
+  - {name: JavaScript, pattern: '\bJavaScript\b'}
+  - {name: Rust, pattern: '\bRust\b', case: true}
+  - {name: Kotlin, pattern: '\bKotlin\b'}
+  - {name: MATLAB, pattern: '\bMATLAB\b'}
+  - {name: Bash, pattern: '\b(Bash|Shell[- ]?Script\w*)\b', covers: [shell scripting]}
+  # data engineering
+  - {name: ETL, pattern: '\b(ETL|ELT)\b', case: true, covers: [elt, etl/elt]}
+  - {name: dbt, pattern: '\bdbt\b'}
+  - {name: Spark, pattern: '\b(Spark|PySpark)\b', covers: [pyspark, apache spark]}
+  - {name: Kafka, pattern: '\bKafka\b', covers: [apache kafka]}
+  - {name: Airflow, pattern: '\bAirflow\b', covers: [apache airflow]}
+  - {name: Databricks, pattern: '\bDatabricks\b'}
+  - {name: Snowflake, pattern: '\bSnowflake\b'}
+  - {name: BigQuery, pattern: '\bBigQuery\b'}
+  - {name: Redshift, pattern: '\bRedshift\b'}
+  - {name: Microsoft Fabric, pattern: '(?i:Microsoft Fabric|MS Fabric)|\bFabric\b(?=[^.]{0,30}(?i:data|daten|lakehouse|power bi|onelake))', case: true, covers: [fabric]}
+  - {name: Azure Synapse, pattern: '\bSynapse\b', covers: [synapse]}
+  - {name: Azure Data Factory, pattern: '\b(Azure Data Factory|ADF)\b', covers: [adf]}
+  - {name: Data Warehousing, pattern: '\b(data ?warehous\w*|DWH|Data Vault)\b', covers: [data warehouse, dwh]}
+  - {name: Data Lake / Lakehouse, pattern: '\b(data ?lake\w*|lakehouse|delta lake)\b', covers: [data lake, lakehouse]}
+  - {name: Dimensional Modelling, pattern: '\b(dimensional\w* model\w*|star schema|Sternschema|Kimball)\b', covers: [dimensional modeling]}
+  - {name: Streaming, pattern: '\b(stream(ing)? processing|real[- ]time data|Flink|Kinesis|Event Hubs?)\b'}
+  - {name: Data Quality, pattern: '\b(data quality|Datenqualität)\b'}
+  - {name: Data Governance, pattern: '\b(data governance|Datengovernance|data catalog\w*|Collibra|Purview)\b'}
+  - {name: Data Migration, pattern: '\b(data migration|Datenmigration|Migrations?projekt\w*)\b'}
+  # databases
+  - {name: PostgreSQL, pattern: '\bPostgre(SQL|s)\b', covers: [postgres]}
+  - {name: SQL Server, pattern: '\b(SQL Server|MSSQL)\b', covers: [mssql, ms sql server]}
+  - {name: Oracle, pattern: '\bOracle\b'}
+  - {name: MySQL, pattern: '\bMySQL\b'}
+  - {name: Teradata, pattern: '\bTeradata\b'}
+  - {name: MongoDB / NoSQL, pattern: '\b(MongoDB|NoSQL|Cassandra|Cosmos ?DB|DynamoDB)\b', covers: [mongodb, nosql]}
+  # BI and analytics
+  - {name: Power BI, pattern: '\bPower ?BI\b'}
+  - {name: Tableau, pattern: '\bTableau\b'}
+  - {name: Qlik, pattern: '\bQlik\w*\b', covers: [qlik sense, qlikview]}
+  - {name: Excel, pattern: '\bExcel\b'}
+  - {name: Power Platform, pattern: '\bPower (Platform|Apps|Automate)\b'}
+  - {name: Business Intelligence, pattern: '\b(Business Intelligence|BI-(Tools?|Lösungen|Systeme|Entwickl\w*))\b', covers: [bi]}
+  - {name: Reporting, pattern: '\b(Reporting|Berichtswesen|Dashboards?)\b', generic: true}
+  - {name: Statistics, pattern: '\b(statistic\w*|Statistik\w*)\b', covers: [statistik]}
+  - {name: A/B testing, pattern: '\bA/B[- ]?Test\w*\b'}
+  - {name: SAP, pattern: '\bSAP\b', case: true}
+  - {name: SAP BW / HANA, pattern: '\b(SAP ?BW|BW/4HANA|S/4 ?HANA|HANA)\b', covers: [sap bw, sap hana]}
+  - {name: OBIEE, pattern: '\bOBIEE\b'}
+  - {name: Semantic Layer, pattern: '\bsemantic (layer|model)\b'}
+  # AI and ML
+  - {name: Artificial Intelligence, pattern: '\b(AI|KI)\b|(?i:künstliche[nr]? Intelligenz|artificial intelligence)', case: true, covers: [ai, ki], generic: true}
+  - {name: Machine Learning, pattern: '(?i:machine learning|maschinelle[sn]? Lernen)|\bML\b', case: true, covers: [ml]}
+  - {name: LLM, pattern: '\b(LLMs?|large language models?|GPT-?\d?|generative AI|GenAI|generative KI)\b', covers: [llms, generative ai, genai]}
+  - {name: RAG, pattern: '\b(RAG|retrieval[- ]augmented)\b'}
+  - {name: AI agents, pattern: '\b(LangChain|LangGraph|LlamaIndex|AI agents?|KI-Agenten|agentic)\b', covers: [langchain, langgraph]}
+  - {name: Prompt Engineering, pattern: '\bprompt[- ]?engineering\b'}
+  - {name: Deep Learning, pattern: '\bdeep learning\b|\bneural networks?\b|\bneuronale[n]? Netz'}
+  - {name: NLP, pattern: '\b(NLP|natural language processing)\b'}
+  - {name: Computer Vision, pattern: '\bcomputer vision\b|\bBildverarbeitung\b'}
+  - {name: MLOps, pattern: '\bMLOps\b'}
+  - {name: PyTorch, pattern: '\bPyTorch\b'}
+  - {name: TensorFlow, pattern: '\bTensorFlow\b|\bKeras\b', covers: [keras]}
+  - {name: scikit-learn, pattern: '\b(scikit[- ]learn|sklearn)\b'}
+  - {name: pandas, pattern: '\bpandas\b'}
+  - {name: NumPy, pattern: '\bNumPy\b'}
+  - {name: Transformers, pattern: '\b(Hugging ?Face|transformers library)\b', covers: [hugging face]}
+  - {name: Vector databases, pattern: '\b(vector (database|store|search)|pgvector|Pinecone|Weaviate|Qdrant|Milvus)\b', covers: [vector database]}
+  - {name: GPU Computing, pattern: '\b(CUDA|GPUs?)\b', case: true, covers: [cuda, gpu]}
+  - {name: Signal Processing, pattern: '\b(signal processing|Signalverarbeitung|DSP)\b', covers: [dsp]}
+  - {name: Audio Processing, pattern: '\baudio (processing|signal\w*|codec\w*)\b'}
+  # cloud and platform
+  - {name: AWS, pattern: '\b(AWS|Amazon Web Services)\b', covers: [amazon web services]}
+  - {name: Azure, pattern: '\bAzure\b', covers: [microsoft azure]}
+  - {name: GCP, pattern: '\b(GCP|Google Cloud)\b', covers: [google cloud, google cloud platform]}
+  - {name: Cloud Technologies, pattern: '\b(cloud|Cloud-\w+)\b', generic: true, covers: [cloud]}
+  - {name: Docker, pattern: '\bDocker\b|\bContainer(isierung|ization)?\b', covers: [containers]}
+  - {name: Kubernetes, pattern: '\b(Kubernetes|K8s|AKS|EKS|GKE|OpenShift)\b', covers: [k8s]}
+  - {name: Terraform, pattern: '\bTerraform\b'}
+  - {name: Infrastructure as Code, pattern: '\b(Infrastructure as Code|IaC|Bicep|Pulumi|CloudFormation)\b', covers: [iac]}
+  - {name: CI/CD, pattern: '\bCI\s*/\s*CD\b|\bcontinuous (integration|delivery|deployment)\b', covers: [ci, cd]}
+  - {name: Git, pattern: '\bGit(Hub|Lab)?\b', covers: [github, gitlab]}
+  - {name: Linux, pattern: '\bLinux\b'}
+  - {name: Observability, pattern: '\b(Grafana|Prometheus|observability|Datadog|Splunk|OpenTelemetry)\b', covers: [monitoring]}
+  - {name: Security, pattern: '\b(IT[- ]Security|cyber ?security|Informationssicherheit|ISO ?27001)\b'}
+  - {name: REST API, pattern: '\b(REST(ful)?|APIs?|OpenAPI)\b', case: true, covers: [rest, apis, api], generic: true}
+  - {name: FastAPI, pattern: '\bFastAPI\b'}
+  # software and ways of working
+  - {name: React, pattern: '\bReact\b'}
+  - {name: Angular, pattern: '\bAngular\b'}
+  - {name: Embedded, pattern: '\b(embedded|eingebettete)\b'}
+  - {name: Agile / Scrum, pattern: '\b(Scrum|Kanban|SAFe)\b|(?i:\bagile[nr]?\b|\bagil\w*)', case: true, covers: [scrum, agile], generic: true}
+  - {name: Jira / Confluence, pattern: '\b(Jira|Confluence)\b', covers: [jira, confluence], generic: true}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Control from "./Control";
+import SkillsMarket from "./SkillsMarket";
 import { supabase } from "./supabase";
 
 // Home (opened from the brand): an overview first, the control panel below it.
@@ -115,6 +116,7 @@ export default function Home() {
           </a>
         ))}
       </div>
+      <SkillsMarket />
       <div id="control" className="home-control">
         <Control />
       </div>

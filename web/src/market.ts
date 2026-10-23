@@ -10,9 +10,10 @@ type Row = { week_start: string; skill: string; skill_id: string | null; generic
 export type MarketSkill = {
   skill: string; skillId: string | null; generic: boolean;
   share: number;                                   // pooled over the recent weeks
-  weekly: { week: string; share: number }[];       // every usable week, oldest first
+  weekly: { week: string; share: number; total: number }[];   // every usable week, oldest first
 };
-export type Market = { bySkill: Map<string, MarketSkill>; companies: number; weeks: string[]; recentWeeks: number };
+export type Market = { bySkill: Map<string, MarketSkill>; companies: number; weeks: string[]; recentWeeks: number;
+                       totals: Map<string, number> };
 
 export const MIN_COMPANIES = 30;     // a week with fewer companies in the group isn't used
 export const RECENT_WEEKS = 4;
@@ -28,12 +29,12 @@ export function summarise(rows: Row[]): Market {
     if (r.skill === "*" || !totals.has(r.week_start) || (totals.get(r.week_start) ?? 0) < MIN_COMPANIES) continue;
     const m = bySkill.get(r.skill) ?? { skill: r.skill, skillId: r.skill_id, generic: r.generic, share: 0, weekly: [] };
     m.skillId = m.skillId ?? r.skill_id;
-    m.weekly.push({ week: r.week_start, share: r.companies / (totals.get(r.week_start) ?? 1) });
+    m.weekly.push({ week: r.week_start, share: r.companies / (totals.get(r.week_start) ?? 1), total: totals.get(r.week_start) ?? 0 });
     if (recent.has(r.week_start)) m.share += r.companies / (recentTotal || 1);
     bySkill.set(r.skill, m);
   }
   for (const m of bySkill.values()) m.weekly.sort((a, b) => a.week.localeCompare(b.week));
-  return { bySkill, companies: [...recent].reduce((a, w) => Math.max(a, totals.get(w) ?? 0), 0), weeks, recentWeeks: recent.size };
+  return { totals, bySkill, companies: [...recent].reduce((a, w) => Math.max(a, totals.get(w) ?? 0), 0), weeks, recentWeeks: recent.size };
 }
 
 /** The market figures for a catalogue skill: linked by id, or by name/alias for skills added later. */
@@ -72,4 +73,26 @@ export function useMarket(family: string | null, scope: Scope) {
     return () => { live = false; };
   }, [family, scope]);
   return market;
+}
+
+export type Mover = { skill: MarketSkill; before: number; after: number; z: number };
+
+/** Rises and falls: the last 3 usable weeks against the 3 before, pooled; only clear changes (|z| >= 2)
+ *  of skills at 5%+ in either period. Empty until there are TREND_WEEKS weeks. */
+export function movers(m: Market, span = 3): Mover[] {
+  if (m.weeks.length < TREND_WEEKS) return [];
+  const after = new Set(m.weeks.slice(-span)), before = new Set(m.weeks.slice(-2 * span, -span));
+  const sum = (ws: Set<string>) => [...ws].reduce((a, w) => a + (m.totals.get(w) ?? 0), 0);
+  const nA = sum(after), nB = sum(before);
+  const out: Mover[] = [];
+  for (const s of m.bySkill.values()) {
+    const k = (ws: Set<string>) => s.weekly.filter((x) => ws.has(x.week)).reduce((a, x) => a + x.share * x.total, 0);
+    const pA = k(after) / (nA || 1), pB = k(before) / (nB || 1);
+    if (Math.max(pA, pB) < 0.05) continue;
+    const p = (pA * nA + pB * nB) / ((nA + nB) || 1);
+    const se = Math.sqrt(p * (1 - p) * (1 / (nA || 1) + 1 / (nB || 1))) || 1;
+    const z = (pA - pB) / se;
+    if (Math.abs(z) >= 2) out.push({ skill: s, before: pB, after: pA, z });
+  }
+  return out.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
 }

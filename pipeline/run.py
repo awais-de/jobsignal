@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--backlog-only", action="store_true",
                         help="only extract and rank stored postings that are still pending; no fetch, no email")
     parser.add_argument("--fast", action="store_true",
-                        help="the fast lane: quick sources and group-A career sites, an instant email with what's new")
+                        help="the fast lane: quick sources and group-A career sites; no email, its jobs go into the next digest")
     parser.add_argument("--discovery-sweep", action="store_true",
                         help="one-off: check every relevant company (groups A and B) for a readable career site")
     parser.add_argument("--skill-demand", type=int, metavar="WEEKS_BACK",
@@ -134,24 +134,23 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(30)
         run_id = db.start_run(dry_run=False, kind="fast" if args.fast else "daily") if db and not args.dry_run else None
         stats, digest = run_pipeline(profile, sources_cfg, db, run_id, fast=args.fast)
-        subject, text, html = digest
         if args.dry_run:
-            if args.preview:
-                args.preview.write_text(html, encoding="utf-8")
+            if args.preview and digest:
+                args.preview.write_text(digest[2], encoding="utf-8")
                 log.info("dry run: digest preview written")
             log.info("dry run: nothing written, nothing sent")
         elif args.fast:
-            ids = stats.pop("_surface_ids")
-            if ids:
-                send_email(subject, text, html)
-                db.mark_notified(ids)
             db.finish_run(run_id, "success", stats)
         else:
+            subject, text, html = digest
             send_email(subject, text, html)
             db.mark_surfaced(stats.pop("_surface_ids"), datetime.now(timezone.utc).date())
+            # Everything queued by the fast lane was in this digest or counted in it.
+            db.clear_digest_queue(stats.pop("_queued_ids"))
             db.finish_run(run_id, "success", stats)
             _ping(suffix="")
         stats.pop("_surface_ids", None)
+        stats.pop("_queued_ids", None)
         log.info("run finished: %s", _fmt(stats))
         return 0
     except Exception as exc:  # noqa: BLE001 - the whole point is to catch everything here
@@ -173,12 +172,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Database | None,
-                 run_id: str | None, fast: bool = False) -> tuple[dict[str, Any], tuple[str, str, str]]:
+                 run_id: str | None, fast: bool = False) -> tuple[dict[str, Any], tuple[str, str, str] | None]:
     """Reads from db when given; writes only when run_id is given (not a dry run).
 
     `fast` (the fast lane, every 30 min; owner request 2026-10-21): only the quick sources (Arbeitsagentur
-    published today, Arbeitnow, StepStone alerts, group-A career sites), no backlog or housekeeping, and an
-    instant email with what's new instead of the digest (none when nothing is)."""
+    published today, Arbeitnow, StepStone alerts, group-A career sites), no backlog or housekeeping, and
+    no email: the jobs it would have shown are queued for the next daily digest (owner decision 2026-10-29)."""
     now = datetime.now(timezone.utc)
     stats: dict[str, Any] = {}
     t_phase = time.monotonic()
@@ -407,6 +406,7 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         _flush_router(page_router, db, PAGE_STAGE)
         # Housekeeping after the jobs are saved: a failure here is logged and skipped, it never costs
         # the digest (2026-10-12: one malformed company domain failed the whole run). Not in the fast lane.
+    ghosts: Any = None
     if run_id and db and not fast:
         if disc_cfg.get("enabled"):
             stats["discovery"] = _optional("discovery", lambda: _discover(db, candidates, disc_cfg, now))
@@ -432,15 +432,24 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         stats["purged_email_bodies"] = db.purge_old_email_bodies(int(tracking.get("email_body_retention_months", 12)))
 
     _phase("write", t_phase); t_phase = time.monotonic()
-    # 7. digest (the fast lane: an instant email with what's new, nothing when nothing is)
-    secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
-    links = [action_links(i, app_url, secret) for i in surface_ids] if secret and app_url and surface_ids else None
+    # 7. digest. The fast lane sends no email (owner decision 2026-10-29): its jobs are on the portal now and
+    #    are queued for the next daily digest.
     if fast:
-        subject, text, html = build_digest([c.raw for c in surface], len(surface), now.date(), links, app_url,
-                                           extras=[c.enrichment for c in surface], instant=True)
-        stats.update({"fetched": len(raws), "new": len(new), "passed": len(passed), "alerted": len(surface),
-                      "llm_calls": enricher.router.calls, "failed_sources": failed_sources, "_surface_ids": surface_ids})
-        return stats, (subject, text, html)
+        if run_id and db and surface_ids:
+            db.queue_for_digest(surface_ids)
+        stats.update({"fetched": len(raws), "new": len(new), "passed": len(passed), "queued": len(surface_ids),
+                      "llm_calls": enricher.router.calls, "failed_sources": failed_sources})
+        return stats, None
+    # The fast lane's jobs since the last digest: the untriaged ones are listed with this run's; those already
+    # applied to or skipped on the portal are only counted.
+    queue = _optional("digest queue", db.digest_queue) if db else None
+    queue = queue if isinstance(queue, list) else []
+    items, waiting, handled = digest_items(
+        [(c.raw, c.enrichment, sid) for c, sid in zip(surface, surface_ids or [None] * len(surface))],
+        queue, ghosts if isinstance(ghosts, dict) else {}, now.date(), int(profile["feed"].get("max_items", 10)))
+    shown_ids = [sid for _, _, sid in items if sid]
+    secret, app_url = os.environ.get("ACTION_LINK_SECRET"), os.environ.get("APP_URL")
+    links = [action_links(sid, app_url, secret) if sid else None for _, _, sid in items] if secret and app_url else None
     reminders = _reminders(db, now) if db else []
     warnings_list = _optional("control warnings", lambda: db.control_warnings()) if db else None
     warnings_list = warnings_list if isinstance(warnings_list, list) else []
@@ -448,12 +457,10 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
     stats["outreach_reminders"] = len(reminders)
     # The count in the email matches the feed's timeline: core jobs; explore jobs get their own line.
     n_explore = sum(c.lane == "explore" for c in passed)
-    # Jobs the fast lane already sent as instant alerts (they're known by now, so not new in this run).
-    alerted = _optional("alerted count", lambda: db.notified_since(now - timedelta(hours=24))) if db else 0
-    stats["already_alerted"] = alerted if isinstance(alerted, int) else 0
-    subject, text, html = build_digest([c.raw for c in surface], len(passed) - n_explore, now.date(), links, app_url,
-                                       extras=[c.enrichment for c in surface], reminders=reminders,
-                                       explore=n_explore, warnings=warnings_list, already_alerted=stats["already_alerted"])
+    stats["from_fast_lane"], stats["already_handled"] = waiting, handled
+    subject, text, html = build_digest([raw for raw, _, _ in items], len(passed) - n_explore + waiting, now.date(),
+                                       links, app_url, extras=[ex for _, ex, _ in items], reminders=reminders,
+                                       explore=n_explore, warnings=warnings_list, already_handled=handled)
     if failed_sources:
         note = f"Note: these sources failed today and were skipped: {', '.join(failed_sources)}."
         text = f"{note}\n\n{text}"
@@ -475,12 +482,13 @@ def run_pipeline(profile: dict[str, Any], sources_cfg: dict[str, Any], db: Datab
         "new": len(new),
         "passed": len(passed),
         "passed_explore": sum(c.lane == "explore" for c in passed),
-        "surfaced": len(surface),
+        "surfaced": len(items),
         "rejected": dict(reasons),
         "details_ok": detail_ok,
         "details_failed": detail_failed,
         "failed_sources": failed_sources,
-        "_surface_ids": surface_ids,
+        "_surface_ids": shown_ids,
+        "_queued_ids": [r["id"] for r in queue],
     })
     return stats, (subject, text, html)
 
@@ -606,6 +614,38 @@ def _ghost(db: Database, sources_cfg: dict[str, Any], now: datetime) -> dict[str
 def _phase(name: str, since: float) -> None:
     """Phase durations in the public log (counts and seconds only)."""
     log.info("phase %s: %.0f s", name, time.monotonic() - since)
+
+
+DigestItem = tuple[RawPosting, dict[str, Any], str | None]     # posting, its analysis, stored id
+
+
+def digest_items(own: list[DigestItem], queue: list[dict[str, Any]], ghosts: dict[str, Any], today: date,
+                 cap: int) -> tuple[list[DigestItem], int, int]:
+    """The daily digest's jobs: this run's plus the fast lane's queue (owner decision 2026-10-29), best first,
+    capped. Queued jobs already applied to or skipped on the portal (or rejected since) aren't listed; those
+    triaged are counted. Returns (items, queued jobs listed or waiting, queued jobs already handled)."""
+    waiting = [r for r in queue if r["triage_status"] == "new" and r["filter_status"] == "passed"]
+    handled = sum(r["triage_status"] != "new" for r in queue)
+    items = list(own)
+    for r in waiting:
+        raw, ex = _digest_item(r)
+        if r["id"] in ghosts:
+            ex["ghost_bucket"], ex["ghost_reasons"] = ghosts[r["id"]]
+        items.append((raw, ex, r["id"]))
+    items.sort(key=lambda x: (x[1].get("rank_score") is not None, x[1].get("rank_score") or 0,
+                              x[0].posted_date or today), reverse=True)
+    return items[:cap], len(waiting), handled
+
+
+def _digest_item(r: dict[str, Any]) -> tuple[RawPosting, dict[str, Any]]:
+    """A stored job (from the fast lane's queue) as the digest's posting and its analysis."""
+    raw = RawPosting(source=r["source"], source_job_id=r.get("source_job_id"), company_name=r["company_name"],
+                     title=r["title"], source_url=r.get("source_url"), apply_url=r.get("apply_url"),
+                     location_raw=r.get("location_raw"), city=r.get("city"), country=r.get("country"),
+                     remote_policy=r.get("remote_policy"), poster_type=r.get("poster_type"), salary_text=r.get("salary_text"),
+                     posted_date=date.fromisoformat(r["posted_date"]) if r.get("posted_date") else None)
+    ex = {k: r.get(k) for k in ("rank_score", "rank_details", "german_level", "required_years", "extraction_status")}
+    return raw, ex
 
 
 def _optional(step: str, fn):

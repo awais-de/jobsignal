@@ -1,8 +1,9 @@
 name: fast-lane
 
 # Every 30 minutes during the day, started by Supabase's scheduler (migration ..._fast_lane.sql): the quick
-# sources (Arbeitsagentur published today, Arbeitnow, StepStone alerts, group-A career sites) and an instant
-# email with what's new. It never runs alongside the daily run (pipeline/run.py checks); logs counts only.
+# sources (Arbeitsagentur published today, Arbeitnow, StepStone alerts, group-A career sites), so new jobs are on
+# the portal within ~30 minutes. No email (owner decision 2026-10-29): what it finds goes into the next daily
+# digest. It never runs alongside the daily run (pipeline/run.py checks); logs counts only.
 on:
   workflow_dispatch: {}
 
@@ -29,8 +30,4 @@ jobs:
           PROFILE_YAML: ${{ secrets.PROFILE_YAML }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          ACTION_LINK_SECRET: ${{ secrets.ACTION_LINK_SECRET }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          APP_URL: ${{ vars.APP_URL }}

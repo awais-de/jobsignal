@@ -44,8 +44,8 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
                  app_url: str | None = None,
                  extras: list[dict] | None = None,
                  reminders: list[str] | None = None, explore: int = 0,
-                 warnings: list[dict[str, str]] | None = None, instant: bool = False,
-                 already_alerted: int = 0) -> tuple[str, str, str]:
+                 warnings: list[dict[str, str]] | None = None,
+                 already_handled: int = 0) -> tuple[str, str, str]:
     """Returns (subject, text, html). `shown` is already ordered and capped; `total` counts all that passed.
     `reminders` are outreach lines (see outreach_reminders), shown above the jobs.
     `total` counts core jobs only; `explore` is the number of new Explore-lane jobs (app only), mentioned
@@ -57,16 +57,15 @@ def build_digest(shown: list[RawPosting], total: int, day: date,
     extras = extras or [{}] * len(shown)
     hidden = total - len(shown)
     subject = f"jobsignal {day:%d %b}: {total} new job{'s' if total != 1 else ''}"
-    if instant and shown:
-        # The fast lane (owner request 2026-10-21): the subject names the job, so the phone's notification says it.
-        subject = f"New job: {shown[0].title} – {shown[0].company_name}" + (f" (+{len(shown) - 1} more)" if len(shown) > 1 else "")
     # The app's root opens Home; the timeline is the Feed.
     feed_link = f"{app_url.rstrip('/')}/#feed" if app_url else None
     app_text = f"\n\nTimeline (last 30 days): {feed_link}" if app_url else ""
     app_html = (f'<p style="font-size:13px"><a href="{escape(feed_link)}">Open the timeline</a> '
                 "for every job from the last 30 days.</p>") if app_url else ""
-    if already_alerted and not instant:
-        line = f"{already_alerted} more job{'s' if already_alerted != 1 else ''} came in during the last 24 h and went out as instant alerts."
+    if already_handled:
+        # Found by the fast lane since the last email and already applied to or skipped on the portal.
+        line = (f"{already_handled} more job{'s' if already_handled != 1 else ''} came in since the last email; "
+                f"you already handled {'them' if already_handled != 1 else 'it'} on the portal.")
         app_text += f"\n{line}"
         app_html += f'<p style="font-size:13px">{escape(line)}</p>'
     if explore:

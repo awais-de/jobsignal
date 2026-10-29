@@ -100,14 +100,8 @@ def test_app_warnings_come_first_in_the_digest():
     assert "App warnings" not in text
 
 
-def test_instant_alert_names_the_job_in_the_subject():
-    a, b = posting(), posting()
-    b.title, b.company_name = "BI Developer (m/w/d)", "Muster AG"
-    subject, text, html = build_digest([a, b], 2, date(2026, 10, 21), instant=True)
-    assert subject.startswith(f"New job: {a.title} – {a.company_name}") and subject.endswith("(+1 more)")
-    assert "Muster AG" in text
-
-
-def test_digest_mentions_jobs_already_sent_as_instant_alerts():
-    _, text, _ = build_digest([posting()], 1, date(2026, 10, 21), app_url="https://app.example", already_alerted=3)
-    assert "3 more jobs came in during the last 24 h and went out as instant alerts." in text
+def test_digest_counts_jobs_already_handled_on_the_portal():
+    _, text, _ = build_digest([posting()], 1, date(2026, 10, 29), app_url="https://app.example", already_handled=3)
+    assert "3 more jobs came in since the last email; you already handled them on the portal." in text
+    _, text, _ = build_digest([posting()], 1, date(2026, 10, 29), app_url="https://app.example", already_handled=1)
+    assert "1 more job came in since the last email; you already handled it on the portal." in text

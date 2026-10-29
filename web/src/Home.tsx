@@ -41,11 +41,10 @@ async function loadCounts(): Promise<Counts> {
 
 type Tta = {
   applications: number;
-  median_hours: { published_to_seen: number | null; seen_to_notified: number | null; notified_to_applied: number | null; total: number | null };
+  median_hours: { published_to_seen: number | null; seen_to_applied: number | null; total: number | null };
   last_applied_at: string | null;
   backlog: { count: number; median_age_hours: number | null };
-  fast_today: { runs: number; last: string | null; alerted: number };
-  notified_today: number;
+  fast_today: { runs: number; last: string | null; queued: number };
 };
 const dur = (h: number | null | undefined) =>
   h == null ? "–" : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1)} days`;
@@ -57,9 +56,8 @@ function TimeToApply() {
   if (!t) return null;
   const m = t.median_hours;
   const steps: [string, number | null, string][] = [
-    ["Posted → seen", m.published_to_seen, "the system: how long a new job takes to reach jobsignal"],
-    ["Seen → told", m.seen_to_notified, "the system: instant alert or digest"],
-    ["Told → applied", m.notified_to_applied, "you"],
+    ["Posted → on the portal", m.published_to_seen, "the system: how long a new job takes to reach jobsignal"],
+    ["On the portal → applied", m.seen_to_applied, "you"],
   ];
   return (
     <section className="card tta">
@@ -77,7 +75,7 @@ function TimeToApply() {
       <p className="small">
         <span className={t.backlog.count > 20 ? "warn-text" : ""}>{t.backlog.count} matching job{t.backlog.count === 1 ? "" : "s"} waiting for you</span>
         {t.backlog.median_age_hours != null && <span className="muted"> (typically {dur(t.backlog.median_age_hours)} old)</span>}
-        {" · "}<span className="muted">fast lane today: {t.fast_today.runs} check{t.fast_today.runs === 1 ? "" : "s"}, {t.fast_today.alerted} instant alert{t.fast_today.alerted === 1 ? "" : "s"}
+        {" · "}<span className="muted">fast lane today: {t.fast_today.runs} check{t.fast_today.runs === 1 ? "" : "s"}, {t.fast_today.queued} new match{t.fast_today.queued === 1 ? "" : "es"} on the portal
         {t.fast_today.last ? `, last ${new Date(t.fast_today.last).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
         {t.last_applied_at && <span className="muted"> · last application {new Date(t.last_applied_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}</span>}
       </p>

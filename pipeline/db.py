@@ -410,18 +410,33 @@ class Database:
         self.mark_notified(ids)
 
     def mark_notified(self, ids: list[str]) -> None:
-        """When the owner was told about these jobs (the time-to-apply funnel measures from it)."""
+        """When the owner was emailed about these jobs (the daily digest)."""
         now = datetime.now(timezone.utc).isoformat()
         for chunk in _chunks(ids, BATCH):
             self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})", "notified_at": "is.null"},
                       json={"notified_at": now})
 
-    def notified_since(self, since: datetime) -> int:
-        """Jobs the fast lane sent as instant alerts since `since` (surfaced_on stays empty for those)."""
-        resp = self.client.get("/job_postings", params={"select": "id", "notified_at": f"gte.{since.isoformat()}",
-                                                         "surfaced_on": "is.null", "limit": 1},
-                               headers={"Prefer": "count=exact", "Range": "0-0"})
-        return int(resp.headers.get("content-range", "*/0").split("/")[-1] or 0)
+    # -- the digest queue (owner decision 2026-10-29: no instant emails) ---------------------
+    DIGEST_COLUMNS = ("id,source,source_job_id,source_url,apply_url,company_name,title,location_raw,city,country,"
+                      "remote_policy,posted_date,poster_type,salary_text,filter_status,triage_status,lane,"
+                      "rank_score,rank_details,german_level,required_years,extraction_status")
+
+    def queue_for_digest(self, ids: list[str]) -> None:
+        """Jobs the fast lane would have emailed: the next daily digest lists them."""
+        now = datetime.now(timezone.utc).isoformat()
+        for chunk in _chunks(ids, BATCH):
+            self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})", "digest_queued_at": "is.null"},
+                      json={"digest_queued_at": now})
+
+    def digest_queue(self) -> list[dict[str, Any]]:
+        """Queued jobs not in a digest yet, oldest first."""
+        return self._req("GET", "/job_postings", params={
+            "select": self.DIGEST_COLUMNS, "digest_queued_at": "not.is.null", "surfaced_on": "is.null",
+            "deleted_at": "is.null", "order": "digest_queued_at", "limit": 1000})
+
+    def clear_digest_queue(self, ids: list[str]) -> None:
+        for chunk in _chunks(ids, BATCH):
+            self._req("PATCH", "/job_postings", params={"id": f"in.({','.join(chunk)})"}, json={"digest_queued_at": None})
 
 
 def _row(c: Candidate) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Control from "./Control";
+import ArrivalPattern from "./ArrivalPattern";
 import SkillsMarket from "./SkillsMarket";
 import { supabase } from "./supabase";
 
@@ -115,6 +116,7 @@ export default function Home() {
         ))}
       </div>
       <SkillsMarket />
+      <ArrivalPattern />
       <div id="control" className="home-control">
         <Control />
       </div>
